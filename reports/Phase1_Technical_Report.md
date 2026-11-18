@@ -98,75 +98,105 @@ We trained and evaluated **6 distinct model families** on the 80 `train` trips u
 
 #### 1. Logistic Regression (Linear)
 - **A. Model Understanding:**
-  1. *Suitability:* Fast linear baseline on distance rank, Gaussian prior, smooth heading cosine, and 2-sided chain margin, producing smooth sigmoid probabilities for downstream HMM emissions.
-  2. *Strengths and Limitations:* Fits in `1.958 s` with minimal overfitting (`train_fit_macro_f1 = 0.9199` vs `CV = 0.9154`), yet a single hyperplane cannot model nonlinear regimes such as low-speed intersections versus multi-second GPS gaps.
+
+    - **1. Suitability:** Fast linear baseline on distance rank, Gaussian prior, smooth heading cosine, and 2-sided chain margin, producing smooth sigmoid probabilities for downstream HMM emissions.
+    - **2. Strengths and Limitations:** Fits in `1.958 s` with minimal overfitting (`train_fit_macro_f1 = 0.9199` vs `CV = 0.9154`), yet a single hyperplane cannot model nonlinear regimes such as low-speed intersections versus multi-second GPS gaps.
+
 - **B. Training and Configuration:**
-  3. *Hyperparameters:* `StandardScaler()` followed by L2 `LogisticRegression(C=1.0, max_iter=500, random_state=42)`.
-  4. *Loss and Objective:* L2-regularized binary log loss.
+
+    - **3. Hyperparameters:** `StandardScaler()` followed by L2 `LogisticRegression(C=1.0, max_iter=500, random_state=42)`.
+    - **4. Loss and Objective:** L2-regularized binary log loss.
+
 - **C. Experimental Results:**
-  5. *Student-Test Summary:* `0.9320` Macro F1, `92.2651%` Top-1 Accuracy, `93.3420%` pooled Continuity (`0.0254 s` inference).
-  6. *Detailed Metrics:* Positive Precision `0.8865`, Positive Recall `0.8752`, Positive F1 `0.8808`, Log Loss `0.0831`.
-  7. *Fit Assessment:* Mild underfitting relative to boosted trees (`train_fit = 0.9199` vs LightGBM `0.9732`, `CV = 0.9154` vs LightGBM `0.9489`).
+
+    - **5. Student-Test Summary:** `0.9320` Macro F1, `92.2651%` Top-1 Accuracy, `93.3420%` pooled Continuity (`0.0254 s` inference).
+    - **6. Detailed Metrics:** Positive Precision `0.8865`, Positive Recall `0.8752`, Positive F1 `0.8808`, Log Loss `0.0831`.
+    - **7. Fit Assessment:** Mild underfitting relative to boosted trees (`train_fit = 0.9199` vs LightGBM `0.9732`, `CV = 0.9154` vs LightGBM `0.9489`).
 
 #### 2. Gaussian Naive Bayes (Probabilistic)
 - **A. Model Understanding:**
-  1. *Suitability:* Closed-form generative baseline modeling class-conditional Gaussian likelihoods per feature.
-  2. *Strengths and Limitations:* Fits fastest (`0.676 s`), but its feature independence assumption fails across correlated spatial and window margins (`dist_to_arc_m`, `mean_window3_dist_to_arc_m`, `prev_cand_connected`).
+
+    - **1. Suitability:** Closed-form generative baseline modeling class-conditional Gaussian likelihoods per feature.
+    - **2. Strengths and Limitations:** Fits fastest (`0.676 s`), but its feature independence assumption fails across correlated spatial and window margins (`dist_to_arc_m`, `mean_window3_dist_to_arc_m`, `prev_cand_connected`).
+
 - **B. Training and Configuration:**
-  3. *Hyperparameters:* `StandardScaler()` followed by `GaussianNB(var_smoothing=1e-6)`.
-  4. *Loss and Objective:* Maximum-likelihood Gaussian density estimation via Bayes' rule.
+
+    - **3. Hyperparameters:** `StandardScaler()` followed by `GaussianNB(var_smoothing=1e-6)`.
+    - **4. Loss and Objective:** Maximum-likelihood Gaussian density estimation via Bayes' rule.
+
 - **C. Experimental Results:**
-  5. *Student-Test Summary:* `0.7957` Macro F1, `91.9676%` Top-1 Accuracy, `92.4491%` pooled Continuity (`0.0695 s` inference).
-  6. *Detailed Metrics:* Positive Precision `0.5039`, Positive Recall `0.9842`, Positive F1 `0.6665`, Log Loss `1.3652`.
-  7. *Fit Assessment:* Severe underfitting and probability miscalibration (`train_fit = 0.7810`, `CV = 0.7943`, `18,493` false positives), making raw Naive Bayes probabilities unsuitable for HMM log-emissions.
+
+    - **5. Student-Test Summary:** `0.7957` Macro F1, `91.9676%` Top-1 Accuracy, `92.4491%` pooled Continuity (`0.0695 s` inference).
+    - **6. Detailed Metrics:** Positive Precision `0.5039`, Positive Recall `0.9842`, Positive F1 `0.6665`, Log Loss `1.3652`.
+    - **7. Fit Assessment:** Severe underfitting and probability miscalibration (`train_fit = 0.7810`, `CV = 0.7943`, `18,493` false positives), making raw Naive Bayes probabilities unsuitable for HMM log-emissions.
 
 #### 3. Decision Tree (Tree-based)
 - **A. Model Understanding:**
-  1. *Suitability:* Captures threshold interactions across candidate rank, cosine heading alignment, and local chain cost without feature scaling.
-  2. *Strengths and Limitations:* Fastest inference (`0.0065 s` across 10 trips), but single greedy splits increase variance across outlier folds (`CV std = 0.0618`).
+
+    - **1. Suitability:** Captures threshold interactions across candidate rank, cosine heading alignment, and local chain cost without feature scaling.
+    - **2. Strengths and Limitations:** Fastest inference (`0.0065 s` across 10 trips), but single greedy splits increase variance across outlier folds (`CV std = 0.0618`).
+
 - **B. Training and Configuration:**
-  3. *Hyperparameters:* `DecisionTreeClassifier(max_depth=12, min_samples_leaf=50, random_state=42)`.
-  4. *Loss and Objective:* Gini impurity minimization.
+
+    - **3. Hyperparameters:** `DecisionTreeClassifier(max_depth=12, min_samples_leaf=50, random_state=42)`.
+    - **4. Loss and Objective:** Gini impurity minimization.
+
 - **C. Experimental Results:**
-  5. *Student-Test Summary:* `0.9627` Macro F1, `93.6273%` Top-1 Accuracy, `95.1436%` pooled Continuity (`0.0065 s` inference).
-  6. *Detailed Metrics:* Positive Precision `0.9414`, Positive Recall `0.9279`, Positive F1 `0.9346`, Log Loss `0.0551`.
-  7. *Fit Assessment:* Moderate overfitting (`train_fit = 0.9643` vs `CV = 0.9317`, gap `0.0326`) with higher fold variance than ensembles.
+
+    - **5. Student-Test Summary:** `0.9627` Macro F1, `93.6273%` Top-1 Accuracy, `95.1436%` pooled Continuity (`0.0065 s` inference).
+    - **6. Detailed Metrics:** Positive Precision `0.9414`, Positive Recall `0.9279`, Positive F1 `0.9346`, Log Loss `0.0551`.
+    - **7. Fit Assessment:** Moderate overfitting (`train_fit = 0.9643` vs `CV = 0.9317`, gap `0.0326`) with higher fold variance than ensembles.
 
 #### 4. Random Forest (Ensemble Bagging)
 - **A. Model Understanding:**
-  1. *Suitability:* Averages 80 bootstrap trees to reduce single-tree variance across urban intersections and noisy GPS stretches.
-  2. *Strengths and Limitations:* Strong precision (`0.9544`, highest among all 6 models) and well-calibrated probabilities (`Log Loss = 0.0454`), at the highest training cost (`20.097 s`).
+
+    - **1. Suitability:** Averages 80 bootstrap trees to reduce single-tree variance across urban intersections and noisy GPS stretches.
+    - **2. Strengths and Limitations:** Strong precision (`0.9544`, highest among all 6 models) and well-calibrated probabilities (`Log Loss = 0.0454`), at the highest training cost (`20.097 s`).
+
 - **B. Training and Configuration:**
-  3. *Hyperparameters:* `RandomForestClassifier(n_estimators=80, max_depth=14, min_samples_leaf=20, random_state=42)`.
-  4. *Loss and Objective:* Bagged Gini impurity reduction across bootstrap subsamples.
+
+    - **3. Hyperparameters:** `RandomForestClassifier(n_estimators=80, max_depth=14, min_samples_leaf=20, random_state=42)`.
+    - **4. Loss and Objective:** Bagged Gini impurity reduction across bootstrap subsamples.
+
 - **C. Experimental Results:**
-  5. *Student-Test Summary:* `0.9630` Macro F1, `94.0292%` Top-1 Accuracy, `95.2428%` pooled Continuity (`0.0998 s` inference).
-  6. *Detailed Metrics:* Positive Precision `0.9544`, Positive Recall `0.9165`, Positive F1 `0.9351`, Log Loss `0.0454`.
-  7. *Fit Assessment:* Balanced generalization (`train_fit = 0.9672` vs `CV = 0.9466`, `CV std = 0.0373`), consistently outperforming Decision Tree across CV (`+0.0149`).
+
+    - **5. Student-Test Summary:** `0.9630` Macro F1, `94.0292%` Top-1 Accuracy, `95.2428%` pooled Continuity (`0.0998 s` inference).
+    - **6. Detailed Metrics:** Positive Precision `0.9544`, Positive Recall `0.9165`, Positive F1 `0.9351`, Log Loss `0.0454`.
+    - **7. Fit Assessment:** Balanced generalization (`train_fit = 0.9672` vs `CV = 0.9466`, `CV std = 0.0373`), consistently outperforming Decision Tree across CV (`+0.0149`).
 
 #### 5. LightGBM (Gradient Boosting, Selected Model)
 - **A. Model Understanding:**
-  1. *Suitability:* Fits sequential histogram boosted trees directly to binary log loss, optimizing the exact probability calibration required by Viterbi emission scoring.
-  2. *Strengths and Limitations:* Ranks **1st across all 5 CV folds** (`0.8716, 0.9544, 0.9685, 0.9609, 0.9676` in `cv_fold_metrics.csv`), achieves the lowest Log Loss (`0.0418`), highest Student-Test Macro F1 (`0.9664`), highest Top-1 Accuracy (`94.4676%`), highest pooled Continuity (`95.9373%`), and `6.0x` faster training than Random Forest (`3.360 s` vs `20.097 s`). Requires leaf and depth tuning to avoid memorizing offset outlier trips.
+
+    - **1. Suitability:** Fits sequential histogram boosted trees directly to binary log loss, optimizing the exact probability calibration required by Viterbi emission scoring.
+    - **2. Strengths and Limitations:** Ranks **1st across all 5 CV folds in Macro F1** (`0.8716, 0.9544, 0.9685, 0.9609, 0.9676` in `cv_fold_metrics.csv`, while Random Forest edges slightly ahead on per-fold Top-1 in Folds 1 and 2), achieves the lowest Log Loss (`0.0418`), highest Student-Test Macro F1 (`0.9664`), highest Top-1 Accuracy (`94.4676%`), highest pooled Continuity (`95.9373%`), and `6.0x` faster training than Random Forest (`3.360 s` vs `20.097 s`). Requires leaf and depth tuning to avoid memorizing offset outlier trips.
+
 - **B. Training and Configuration:**
-  3. *Hyperparameters:* `LGBMClassifier(n_estimators=200, learning_rate=0.08, num_leaves=31, min_child_samples=50, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=42)` (identical to `untuned_lgbm.joblib` and the Section 4 untuned baseline).
-  4. *Loss and Objective:* Binary cross-entropy (`binary_logloss`) optimized by leaf-wise gradient boosting.
+
+    - **3. Hyperparameters:** `LGBMClassifier(n_estimators=200, learning_rate=0.08, num_leaves=31, min_child_samples=50, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=42)` (identical to `untuned_lgbm.joblib` and the Section 4 untuned baseline).
+    - **4. Loss and Objective:** Binary cross-entropy (`binary_logloss`) optimized by leaf-wise gradient boosting.
+
 - **C. Experimental Results:**
-  5. *Student-Test Summary:* `0.9664` Macro F1, `94.4676%` Top-1 Accuracy, `95.9373%` pooled Continuity (`0.1471 s` inference).
-  6. *Detailed Metrics:* Positive Precision `0.9444`, Positive Recall `0.9378`, Positive F1 `0.9411`, Log Loss `0.0418`.
-  7. *Fit Assessment:* Controlled generalization (`train_fit = 0.9732`, `CV = 0.9489`, `Test = 0.9664`). In Figure 13, Fold 0 validation loss reaches its minimum (`~0.160`) near iteration 22 and drifts upward toward `~0.221` by iteration 200 solely on noisy Fold 0 (`train/00000054`), motivating Optuna regularization search in Section 4.
+
+    - **5. Student-Test Summary:** `0.9664` Macro F1, `94.4676%` Top-1 Accuracy, `95.9373%` pooled Continuity (`0.1471 s` inference).
+    - **6. Detailed Metrics:** Positive Precision `0.9444`, Positive Recall `0.9378`, Positive F1 `0.9411`, Log Loss `0.0418`.
+    - **7. Fit Assessment:** Controlled generalization (`train_fit = 0.9732`, `CV = 0.9489`, `Test = 0.9664`). In Figure 13, Fold 0 validation loss reaches its minimum (`~0.160`) near iteration 22 and drifts upward toward `~0.221` by iteration 200 solely on noisy Fold 0 (`train/00000054`), motivating Optuna regularization search in Section 4.
 
 #### 6. MLP Neural Network (Neural Networks)
 - **A. Model Understanding:**
-  1. *Suitability:* Models continuous smooth combinations of standardized distance, angular, and chain-cost inputs.
-  2. *Strengths and Limitations:* Fast inference (`0.0404 s` across 10 trips) and smooth probability calibration (`Log Loss = 0.0539`), though histogram trees still split discrete ranks (`dist_rank`) and graph degree counts more effectively.
+
+    - **1. Suitability:** Models continuous smooth combinations of standardized distance, angular, and chain-cost inputs.
+    - **2. Strengths and Limitations:** Fast inference (`0.0404 s` across 10 trips) and smooth probability calibration (`Log Loss = 0.0539`), though histogram trees still split discrete ranks (`dist_rank`) and graph degree counts more effectively.
+
 - **B. Training and Configuration:**
-  3. *Hyperparameters:* `StandardScaler()` + `MLPClassifier(hidden_layer_sizes=(64, 32), alpha=1e-4, learning_rate_init=1e-3, max_iter=35, batch_size=2048, tol=1e-3, early_stopping=True, validation_fraction=0.1, n_iter_no_change=4, random_state=42)`.
-  4. *Loss and Objective:* L2-regularized binary cross-entropy optimized via Adam.
+
+    - **3. Hyperparameters:** `StandardScaler()` + `MLPClassifier(hidden_layer_sizes=(64, 32), alpha=1e-4, learning_rate_init=1e-3, max_iter=35, batch_size=2048, tol=1e-3, early_stopping=True, validation_fraction=0.1, n_iter_no_change=4, random_state=42)`.
+    - **4. Loss and Objective:** L2-regularized binary cross-entropy optimized via Adam.
+
 - **C. Experimental Results:**
-  5. *Student-Test Summary:* `0.9549` Macro F1, `93.6534%` Top-1 Accuracy, `94.4230%` pooled Continuity (`0.0404 s` inference).
-  6. *Detailed Metrics:* Positive Precision `0.9393`, Positive Recall `0.9030`, Positive F1 `0.9208`, Log Loss `0.0539`.
-  7. *Fit Assessment:* Low overfitting (`train_fit = 0.9498` vs `CV = 0.9399`) with early stopping halting at epoch 9 (Figure 13, where the internal 10% validation curve reflects random row validation inside `MLPClassifier` rather than `GroupKFold`).
+
+    - **5. Student-Test Summary:** `0.9549` Macro F1, `93.6534%` Top-1 Accuracy, `94.4230%` pooled Continuity (`0.0404 s` inference).
+    - **6. Detailed Metrics:** Positive Precision `0.9393`, Positive Recall `0.9030`, Positive F1 `0.9208`, Log Loss `0.0539`.
+    - **7. Fit Assessment:** Low overfitting (`train_fit = 0.9498` vs `CV = 0.9399`) with early stopping halting at epoch 9 (Figure 13, where the internal 10% validation curve reflects random row validation inside `MLPClassifier` rather than `GroupKFold`).
 
 ---
 
@@ -184,7 +214,7 @@ We trained and evaluated **6 distinct model families** on the 80 `train` trips u
 
 ## 4. Bayesian Hyperparameter Optimisation (LightGBM)
 
-We selected **5-fold `GroupKFold` CV Macro F1** paired with **Log Loss** as our optimisation objective because candidate sets average 87.5%+ negative labels while the HMM layer scores calibrated log-probabilities. LightGBM outperformed all five competing families across every CV fold (`0.9489`), Student-Test Macro F1 (`0.9664`), Top-1 Accuracy (`94.4676%`), and Log Loss (`0.0418`).
+We selected **5-fold `GroupKFold` CV Macro F1** paired with **Log Loss** as our optimisation objective because candidate sets average 87.5%+ negative labels while the HMM layer scores calibrated log-probabilities. LightGBM outperformed all five competing families across every CV fold in Macro F1 (`0.9489`), Student-Test Macro F1 (`0.9664`), Top-1 Accuracy (`94.4676%`), and Log Loss (`0.0418`).
 
 1. **Hyperparameters included:** `n_estimators`, `learning_rate`, `num_leaves`, `max_depth`, `min_child_samples`, `subsample` (with `subsample_freq=1`), `colsample_bytree`, and `reg_lambda`.
 2. **Search space and distributions:**
@@ -199,7 +229,7 @@ We selected **5-fold `GroupKFold` CV Macro F1** paired with **Log Loss** as our 
 3. **Optimisation protocol:** 5-fold `GroupKFold` out-of-fold Macro F1 strictly on the 80 `train` trips (`[::5]` fit stride during search; final untuned vs tuned comparison evaluated identically at `[::3]` with `subsample_freq=1` across 100% validation and `student_test`).
 4. **Cost and trial budget:** **25 Optuna TPE trials** (`TPESampler(seed=42)`), completing in **`646.18 s`** (`optuna_trials.csv`).
 5. **Best configuration (Trial 19, search CV Macro F1 = `0.95054`):** `n_estimators=385`, `learning_rate=0.02365`, `num_leaves=88`, `max_depth=10`, `min_child_samples=97`, `subsample=0.67683`, `colsample_bytree=0.72281`, `reg_lambda=0.00105`, `subsample_freq=1` (`best_lgbm_tuned.joblib`). Lower learning rate (`0.02365` vs `0.08`) with more trees (`385` vs `200`), larger `min_child_samples=97`, and subsampling (`0.677` row / `0.723` feature) improves probability calibration across noisy folds.
-6. **Untuned vs. Tuned comparison:** Under the identical `[::3]` protocol (`untuned_vs_tuned_comparison.csv`, Figure 14), **Tuned LightGBM outperforms Untuned LightGBM across every accuracy, calibration, and CV metric** (`CV Macro F1: 0.9489 -> 0.9505`, `CV Top-1: 82.9611% -> 83.1252%`, `CV Log Loss: 0.0836 -> 0.0788`, `Student-Test Macro F1: 0.9664 -> 0.9674`, `Student-Test Top-1: 94.4676% -> 94.5929%`, `Student-Test Log Loss: 0.0418 -> 0.0404`). While the F1 margin lies within fold standard deviation (`std = 0.0363`), lower Log Loss yields cleaner confidence margins for Viterbi decoding at a modest `3.8x` inference-time trade-off (`0.1461 s -> 0.4112 s` across 10 trips).
+6. **Untuned vs. Tuned comparison:** Under the identical `[::3]` protocol (`untuned_vs_tuned_comparison.csv`, Figure 14), Tuned LightGBM improves upon Untuned LightGBM on overall CV Macro F1 (`0.9489 -> 0.9505`), CV Top-1 (`82.9611% -> 83.1252%`), CV Log Loss (`0.0836 -> 0.0788`), Student-Test Macro F1 (`0.9664 -> 0.9674`), Student-Test Top-1 (`94.4676% -> 94.5929%`), Positive Recall (`0.9378 -> 0.9416`), and Student-Test Log Loss (`0.0418 -> 0.0404`), while Student-Test Positive Precision shifts slightly (`0.9444 -> 0.9443`) and pooled continuity ties (`95.9373%`). Although the Macro F1 gain lies within fold standard deviation (`std = 0.0363`), lower Log Loss sharpens probability margins for Viterbi decoding at a `2.81x` inference-time trade-off (`0.1461 s -> 0.4112 s` across 10 trips).
 
 | Variant | CV Macro F1 (Std) | CV Top-1 Acc | CV Log Loss | Student-Test Macro F1 | Student-Test Top-1 Acc | Student-Test Log Loss | Pooled Continuity (Test) | Train Time | Inf Time (10 trips) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -222,13 +252,13 @@ We selected **5-fold `GroupKFold` CV Macro F1** paired with **Log Loss** as our 
     - Staying on the same arc (`a = b`): `d_road = |t_cur - t_prev| * L_a`, plus `backtrack_cost` if `t_cur < t_prev - 0.12`.
     - Switching arcs (`a != b`): bounded Dijkstra (`max_pops = 3000`) finds shortest directed distance `d_sp(v_a -> u_b)` so `d_road = (1 - t_prev) * L_a + d_sp + t_cur * L_b`.
     - Connected transition log-score is `-min(max_conn_penalty, beta_trans * |d_road - d_gps| / sqrt(dt)) - switch_cost - min(25.0, sp_weight * d_sp / sp_gap_scale) - uturn_cost * I(u_b == v_a and v_b == u_a)`.
-    - Tuning across 6 configurations strictly on **6 stratified `train` trips** (`00000001`, `00000004`, `00000013`, `00000018`, `00000022`, `00000035`, spanning `379` to `2,580` observations, `5.9k` to `155k` nodes, and `53.1%` to `100.0%` 1 Hz sampling cadences, `hmm_tuning_trials.csv`) selected **`config_id = 1`** (`alpha_emit=1.0`, `geom_weight=0.5`, `beta_trans=0.35`, `switch_cost=1.0`, `sp_weight=0.10`, `uturn_cost=8.0`, `backtrack_cost=4.0`, `disconnect_penalty=80.0`, `max_conn_penalty=30.0`), achieving **`93.5408%`** Route Arc F1, **`97.5965%`** Realigned Top-1 Accuracy, and **`99.6647%`** sequence continuity on that `train` subset while leaving `student_test` completely out of tuning.
+    - Tuning across 6 configurations strictly on **6 stratified `train` trips** (`00000001`, `00000004`, `00000013`, `00000018`, `00000022`, `00000035`, spanning `379` to `2,580` observations, `6.0k` to `155k` nodes, and `53.1%` to `100.0%` 1 Hz sampling cadences, `hmm_tuning_trials.csv`) selected **`config_id = 1`** (`alpha_emit=1.0`, `geom_weight=0.5`, `beta_trans=0.35`, `switch_cost=1.0`, `sp_weight=0.10`, `uturn_cost=8.0`, `backtrack_cost=4.0`, `disconnect_penalty=80.0`, `max_conn_penalty=30.0`), achieving **`93.5408%`** Route Arc F1, **`97.5965%`** Realigned Top-1 Accuracy, and **`99.6647%`** sequence continuity on that `train` subset while leaving `student_test` completely out of tuning.
 
 ### 5.2 Handling Missing Candidates, Gaps, and Disconnected Segments
 
-1. **Multi-second GPS gaps:** Both kinematic distance slack (`gap_scale = sqrt(dt)`) and shortest-path distance slack (`sp_gap_scale = sqrt(dt / 5.0)` for `dt > 5 s`) widen automatically across dropouts, Dijkstra search range expands via `ceil(max(200, min(55 * dt, 3500)) / 10) * 10`, and `gap_disc_pen` stays strictly above `max_conn_penalty + 25.0 + 10.0 = 65.0` so valid bridged transitions always outrank disconnected jumps.
+1. **Multi-second GPS gaps:** Both kinematic distance slack (`gap_scale = sqrt(dt)`) and shortest-path distance slack (`sp_gap_scale = sqrt(dt / 5.0)` for `dt > 5 s`) widen automatically across dropouts, Dijkstra search range expands via `ceil(max(200, min(55 * dt, 3500)) / 10) * 10`, and `gap_disc_pen` stays at least `65.0` (`>= max_conn_penalty + 25.0 + 10.0`, strictly above the maximum connected penalty of `30.0 + 1.0 + 25.0 + 8.0 = 64.0`) so valid bridged transitions always outrank disconnected jumps.
 2. **Candidate misses and path bridging:** When a true road arc drops out of the top-8 set, Viterbi tracks adjacent connected candidates across the intersection and `reconstruct_continuous_route` collapses repeated IDs and bridges any remaining multi-hop node gaps with `shortest_arc_path` (up to `1,500 m`). Across all 10 `student_test` trips (`19,160` observations), **0 Dijkstra truncations** occurred.
-3. **Stage 4 Continuous Route Boundary Realignment:** After Viterbi fixes the continuous road sequence `reconstructed_route`, `realign_route_boundaries` monotonically re-aligns GPS pings along `reconstructed_route` using only `.track` positions and turnaround-aware chord headings (`align_route_to_observations` in inference-only mode). We verified via automated test that `predict_trip_route` produces bit-for-bit identical output when `.route` is removed from disk.
+3. **Stage 4 Continuous Route Boundary Realignment:** After Viterbi fixes the continuous road sequence `reconstructed_route`, `realign_route_boundaries` monotonically re-aligns GPS pings along `reconstructed_route` using only `.track` positions and turnaround-aware chord headings (`align_route_to_observations` in inference-only mode). We verified in an isolated temporary run (copying only `.track`, `.nodes`, and `.arcs` without `.route`) that `predict_trip_route` produces bit-for-bit identical output when `.route` is absent.
 
 ### 5.3 Classifier-Only vs. Hybrid HMM and Boundary Realignment
 
@@ -254,7 +284,7 @@ To isolate how each architectural improvement contributes without relying on a s
 | Stage 3 | + Hybrid Prob-Geom HMM (Raw) | 96.7589% | +2.1660 pp | 96.5834% | 97.4431% | **96.3390%** | 74 | **21** | 327 | **199** | 621 |
 | **Stage 4** | **+ Continuous Route Realignment** | **97.7036%** | **+0.9447 pp** | **97.7113%** | **97.6732%** | **96.3390%** | **51** | 30 | **147** | 212 | **440** |
 
-*Note on Stage 0 and Stage 1 Error Sub-Buckets:* Frozen `ba4d85e` baselines record total mismatches (`2,246` and `1,161`) and candidate misses (`78` at `K = 8`); exclusive sub-bucket decomposition under `classify_error_buckets` begins at Stage 2 (`1,036 -> 621 -> 440` errors). Every upgrade delivers broad gains outside Trip `00000077`: `other9_top1_acc_pct` rises from `91.7437%` (Stage 0) and `95.7243%` (Stage 1) to `96.5834%` (Stage 3) and **`97.7113%`** (Stage 4), while Trip `00000077` jumps `+22.91 pp` (`74.7635% -> 97.6732%`). Across all 10 trips, Stage 4 flips `307` total observations cleanly (`244` wrong-to-right corrections vs `63` regressions, a **+181 net error reduction**), cutting Intersection Boundary Lag errors by **55.0%** (`327 -> 147`) and recovering `23` candidate-miss pings (`74 -> 51`) along bridged route arcs.
+*Note on Stage 0 and Stage 1 Error Sub-Buckets:* Frozen `ba4d85e` baselines record total mismatches (`2,246` and `1,161`) and candidate misses (`78` at `K = 8`); exclusive sub-bucket decomposition under `classify_error_buckets` begins at Stage 2 (`1,036 -> 621 -> 440` errors). Comparing like-for-like model families and HMM stages, each major layer delivers broad gains outside Trip `00000077`: `other9_top1_acc_pct` rises from `91.7437%` (Stage 0) to `94.3603%` (Stage 2) for Classifier-Only predictions, and from `95.7243%` (Stage 1) to `96.5834%` (Stage 3) and **`97.7113%`** (Stage 4) for HMM-decoded sequences, while Trip `00000077` jumps `+22.91 pp` (`74.7635% -> 97.6732%`). Across all 10 trips, Stage 4 flips `337` total observations (producing `307` correctness-changing flips: `244` wrong-to-right corrections vs `63` right-to-wrong regressions, plus `30` wrong-to-wrong arc shifts, a **+181 net error reduction**), cutting Intersection Boundary Lag errors by **55.0%** (`327 -> 147`) and recovering `23` candidate-miss pings (`74 -> 51`) along bridged route arcs.
 
 ![Figure 16: Progressive accuracy climb across Stages 0 to 4 and 4-bucket error taxonomy reduction](hmm/figures/fig3_incremental_accuracy_gains.png)
 
