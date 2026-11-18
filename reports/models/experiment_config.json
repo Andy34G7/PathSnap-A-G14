@@ -9,6 +9,7 @@
   "optuna_trials": 25,
   "optuna_search_time_s": 410.61,
   "best_optuna_trial": 22,
+  "dijkstra_max_pops": 3000,
   "best_lgbm_params": {
     "n_estimators": 196,
     "learning_rate": 0.054713800341309696,
@@ -26,7 +27,6 @@
     "switch_cost": 0.5,
     "uturn_cost": 2.0,
     "disconnect_penalty": 30.0,
-    "max_conn_penalty": 12.0,
-    "dijkstra_max_pops": 3000
+    "max_conn_penalty": 12.0
   }
 }

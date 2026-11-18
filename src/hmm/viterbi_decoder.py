@@ -140,9 +140,9 @@ def viterbi_decode_trip(
     arc_lens: np.ndarray,
     alpha_emit: float = 1.0,
     beta_trans: float = 0.15,
-    switch_cost: float = 0.15,
-    uturn_cost: float = 1.5,
-    disconnect_penalty: float = 25.0,
+    switch_cost: float = 0.5,
+    uturn_cost: float = 2.0,
+    disconnect_penalty: float = 30.0,
     max_conn_penalty: float = 12.0,
 ) -> tuple[np.ndarray, int]:
     """Decode the most probable road-arc sequence using Viterbi in log-probability space."""
