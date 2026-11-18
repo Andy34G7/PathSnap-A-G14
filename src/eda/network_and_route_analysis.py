@@ -254,7 +254,7 @@ def plot_gps_noise_and_ratio(topo_df: pd.DataFrame, gps_noise: np.ndarray) -> No
     ]:
         axes[0].axvline(min(val, 100.0), color=col, linestyle="--", linewidth=1.4, label=lbl)
 
-    axes[0].set_xlabel("Perpendicular Distance to Ground-Truth .route Segment (m, clipped 100 m)")
+    axes[0].set_xlabel("Shortest Distance to Reference .route Segment (m, clipped 100 m)")
     axes[0].set_ylabel("Probability Density")
     axes[0].set_title(f"GPS Noise Distribution Relative to .route (n={len(gps_noise):,} obs)")
     axes[0].legend(loc="center right", fontsize=8.5)

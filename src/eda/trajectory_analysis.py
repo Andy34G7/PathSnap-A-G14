@@ -93,8 +93,8 @@ def compute_crs_distortion_comparison(sample_trip_dir: Path) -> pd.DataFrame:
             "utm_epsg": epsg,
             "method": "Naive Isotropic Degree Scaling (111.32 km/deg)",
             "total_length_m": round(naive_total_m, 3),
-            "relative_error_vs_geodesic_pct": round(naive_rel_err_pct, 3),
-            "max_step_diff_vs_geodesic_m": round(float(np.max(np.abs(deg_steps * 111319.9 - geod_steps))), 3),
+            "relative_error_vs_geodesic_pct": round(naive_rel_err_pct, 5),
+            "max_step_diff_vs_geodesic_m": round(float(np.max(np.abs(deg_steps * 111319.9 - geod_steps))), 5),
             "one_deg_lon_m": round(dlon_1deg_m, 2),
             "one_deg_lat_m": round(dlat_1deg_m, 2),
             "lon_lat_anisotropy_pct": round(lon_vs_lat_distortion_pct, 2),
@@ -235,6 +235,7 @@ def plot_sampling_and_speeds(dt_arrays: dict[str, np.ndarray], speed_arrays: dic
 
 def plot_lengths_and_obs(dyn_df: pd.DataFrame) -> None:
     """Create Fig 2: GPS observation counts and physical trajectory length distributions."""
+    np.random.seed(0)
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     palette = {"train": "#2563eb", "student_test": "#ea580c"}

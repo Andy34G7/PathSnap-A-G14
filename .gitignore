@@ -15,6 +15,9 @@ env/
 train/
 student_test/
 evaluator_test/
+artifacts/features/*.npz
+artifacts/models/*.joblib
+viva_prep/
 
 # OS / Editor
 .DS_Store
