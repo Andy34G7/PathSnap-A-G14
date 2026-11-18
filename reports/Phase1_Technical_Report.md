@@ -9,26 +9,26 @@
 
 ### 1.1 Data Preprocessing and Candidate Retrieval
 
-When a vehicle drives through a city, its Global Positioning System (GPS) receiver logs coordinates once per second. Raw GPS points rarely fall on the exact road centerline because signal noise pushes positions several meters sideways.
+Imagine tracking a vehicle driving through a city while its GPS receiver logs coordinates once a second. Those raw points rarely sit on the true road centerline because signal noise pulls positions sideways by several meters.
 
-On a two-way street or dense junction, snapping each ping to the closest arc fails often. Parallel lanes share nearly identical positions, so small lateral noise shifts points onto opposing lanes or side streets. Each reference route also stores an ordered sequence of traversed road arcs rather than point labels.
+So why not just pick the closest road segment for every ping? Simple, right? On a two-way street or busy junction, snapping to the nearest arc fails right away. Parallel lanes sit almost on top of each other, so slight drift flips points into oncoming traffic or onto side streets. Every reference route in our data is also stored as an ordered list of road arcs rather than point labels.
 
-Our development data covers 80 trips in `train` (208,417 points) and 10 trips in `student_test` (19,160 points). Each trip records GPS pings alongside a directed road graph. Ground-truth routes are available offline for training and local validation. During preprocessing, we derive every input feature solely from the GPS stream and road network:
+Our development data covers 80 trips in `train` (208,417 points) and 10 trips in `student_test` (19,160 points), each packing raw GPS pings alongside a directed road graph. Ground-truth routes stay offline for training and local validation. Before building any features, we run four preprocessing steps purely on those GPS coordinates and road edges:
 
-1. **Dynamic metric projection:** Each trip maps World Geodetic System 1984 (WGS84) degrees into its local Universal Transverse Mercator (UTM) meter plane. The European Petroleum Survey Group (EPSG) zone code is selected automatically from the trip centroid.
-2. **Time-gap preservation:** All valid pings stay in temporal order. Tabular features cap elapsed gaps at 600 s, while sequential decoding keeps exact durations intact.
-3. **Turnaround-aware velocity smoothing:** Fixed five-point velocity windows fail when vehicles wait at traffic lights. Stationary drift reverses the velocity vector into oncoming lanes, which dragged baseline accuracy on `student_test` trip `00000077` down to 74.7635% (Section 4.4). Instead, we smooth planar coordinates with a Gaussian filter (`sigma = 2.5`) and extend chords to 20 m. When arrival and departure chords oppose, incoming vectors govern pre-stop points while outgoing vectors govern post-stop points. On `train`, this spatial chord design keeps median matched heading error at 2.94 deg (91.04 deg unmatched). Instantaneous headings still use lighter coordinate derivatives (`sigma = 1.2`).
-4. **Three-point spatial indexing:** Road segments reach 9,357.6 m in length across our road graphs. Indexing only arc midpoints misses true matches near highway junctions. We sample three evenly spaced points per segment inside a spatial search tree. Each ping queries 72 nearby sample points and keeps top `K = 8` unique arcs ranked by distance and heading alignment. As shown in Figure 1, setting `K = 8` holds the `student_test` candidate miss rate at 0.3862% (99.6138% recall).
+1. **Dynamic metric projection:** Each trip maps WGS84 coordinates into its local UTM meter plane, choosing the EPSG zone from the trip center. Working in metric meters avoids warped latitude and longitude degrees right from the start.
+2. **Time-gap preservation:** Every valid GPS ping stays in temporal sequence. Tabular features cap elapsed time gaps at 600 s so extreme dropouts do not blow up feature scaling, while sequential decoding keeps exact durations intact.
+3. **Turnaround-aware velocity smoothing:** Fixed five-point velocity windows break down when cars stop at traffic lights. Stationary jitter bounces back and forth, flipping the velocity vector backward into oncoming lanes. That single bug dragged baseline accuracy on `student_test` trip `00000077` down to 74.7635% (Section 4.4). To fix it, we smooth planar coordinates with a Gaussian filter (`sigma = 2.5`) and extend chords outward until displacement hits 20 m. Whenever arrival and departure chords oppose, incoming vectors govern points before the stop and outgoing vectors govern points after. On `train`, median matched heading error holds at 2.94 deg against 91.04 deg on false arcs, while instantaneous headings still use lighter `sigma = 1.2` derivatives.
+4. **Three-point spatial indexing:** Highway segments stretch up to 9,357.6 m across our road graphs. Indexing only arc midpoints would miss valid matches near junctions. Instead, we sample three evenly spaced points per segment inside a spatial tree. Each ping queries 72 nearby samples and ranks unique roads by distance and heading offset to keep top `K = 8` candidates. As Figure 1 shows, `K = 8` cuts the `student_test` candidate miss rate to 0.3862% (99.6138% recall).
 
-For supervised training only, monotonic dynamic programming (DP) aligns GPS points against ground-truth routes. Allowing 0 to 15 segment steps with a `+50.0` fallback yields binary labels (`y = 1` or `0`) without altering inputs.
+For supervised training only, monotonic dynamic programming (DP) aligns GPS points against ground-truth routes. Allowing 0 to 15 segment steps with a `+50.0` fallback penalty produces binary target labels (`y = 1` or `0`) without modifying input features.
 
 ![Figure 1: Candidate miss rate against candidate set size K across train and student_test](features/figures/fig1_candidate_miss_rate_vs_k.png)
 
 ### 1.2 Data Exploration and Visual Checks
 
-Before building features or classifiers, we audited data quality across all 90 trips in `train` and `student_test`. Together they contain 227,577 GPS observations and 34,813 ground-truth route segments. Those road networks span 2,024,174 vertices and 4,061,945 directed edges.
+Before tuning models, we audited data quality across all 90 trips in `train` and `student_test`. Together they contain 227,577 GPS observations across road graphs totaling 2,024,174 vertices and 4,061,945 directed edges (with 34,813 ground-truth route arcs).
 
-Integrity checks found zero missing or infinite values in any table. We also confirmed zero invalid node indices and zero non-monotonic timestamps. Table 1 summarizes dataset volume and timing gaps, while Figures 2 and 3 plot sampling intervals and trip lengths.
+Sanity checks came back clean. Every partition had zero missing values and zero invalid node indices. Timestamps also moved forward strictly across every trip (`dt > 0`). Table 1 breaks down sample scale and timing gaps per partition, while Figures 2 and 3 plot sampling intervals and trip lengths.
 
 | Partition | Trips | Total GPS Obs | Obs per Trip (Min / Med / Max) | Total Nodes (Max per Trip) | Total Arcs (Max per Trip) | Steps with `dt = 1 s` | Gaps `> 60 s` (`dt_max`) | UTM Zones |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -39,17 +39,17 @@ Integrity checks found zero missing or infinite values in any table. We also con
 
 ![Figure 3: GPS observation count against metric trajectory length distributions](eda/figures/fig2_trajectory_lengths_and_obs.png)
 
-Geographic coordinates show why planar projection matters before distance calculation. Trip centroids span -100.35 deg to 137.22 deg longitude and -34.62 deg to 61.67 deg latitude across 25 UTM zones (Figure 4). Away from the equator, longitude degrees shrink noticeably. On `train` trip `00000001` near 50.09 deg N, one longitude degree spans 71,563.7 m against 111,230.8 m in latitude. That 35.66% compression causes isotropic degree distances to overestimate trip length by 11.81% (up to 27.91 m per step). Local UTM projection shrinks length error to 0.04% (under 3 cm per step).
+One quick check on global coordinates explains why local UTM projection is essential. Trip centroids span -100.35 deg to 137.22 deg longitude and -34.62 deg to 61.67 deg latitude across 25 UTM zones (Figure 4). Far from the equator, meridians converge fast. On `train` trip `00000001` near 50.09 deg N, one longitude degree spans only 71,563.7 m against 111,230.8 m per latitude degree. That 35.66% east-west squeeze makes raw degree distance overestimate total trip length by 11.81% (up to 27.91 m off per step). Local UTM projection shrinks that length error to 0.04%.
 
 ![Figure 4: Global trip centroids mapped across 25 train and 9 student_test UTM zones](eda/figures/fig3_global_trip_locations.png)
 
-Beyond coordinate scale, graph connectivity and GPS noise reveal three structural properties across Figures 5 and 6:
+Looking past coordinates, graph connectivity and GPS noise reveal three big patterns across Figures 5 and 6:
 
-- **Network fragmentation:** Road graphs contain 1 to 421 weakly connected components in `train` (median 20). That range sits between 5 and 100 in `student_test` (median 11). Bidirectional streets account for 95.112% median in `train` and 93.261% in `student_test`, dropping to 35.133% on `train` trip `00000080`. Because vehicles spend several seconds per road arc, GPS points outnumber route edges by 5.289x median in `train` (4.635x in `student_test`).
-- **Lateral noise and outliers:** Ordinary trips track reference paths closely. Median distance to ground truth sits at 4.503 m in `train` and 4.593 m in `student_test`. Per-trip 95th-percentile offsets have medians of 14.212 m and 15.798 m. Still, two `train` trips suffer global lateral shifts: `00000054` (median 138.59 m) and `00000033` (median 122.41 m). Trip `00000002` shows a sustained GPS excursion reaching 569.66 m (`p95 = 242.36 m`).
-- **Route sequence breaks:** Reference ground truth contains disconnected edge jumps on 10 `train` trips (13 total jumps). Only `student_test` trip `00000076` shows one disconnected step.
+- **Network fragmentation:** Road graphs split into 1 to 421 weakly connected components in `train` (median 20) and 5 to 100 in `student_test` (median 11). Most streets are bidirectional (95.112% median in `train`, dropping to 35.133% on trip `00000080`). Because vehicles spend multiple seconds driving along one road edge, GPS points outnumber route segments by 5.289x median in `train` (4.635x in `student_test`).
+- **Lateral noise and outliers:** Ordinary trips track reference paths tightly, sitting at median offsets of 4.503 m (`train`) and 4.593 m (`student_test`) with `p95` medians near 15 m. Still, outliers exist. Two `train` trips suffer massive whole-trip shifts (`00000054` at 138.59 m median, `00000033` at 122.41 m). Trip `00000002` also holds a sustained excursion reaching 569.66 m (`p95 = 242.36 m`).
+- **Route sequence breaks:** Ground-truth routes aren't always 100% contiguous either. Ten `train` trips contain disconnected hops (13 steps total), alongside one jump in `student_test` trip `00000076`.
 
-To inspect these patterns at street resolution, Figures 7 and 8 present UTM trajectories and a Folium map on `train` trip `00000001`.
+To see those street quirks up close, Figures 7 and 8 show zoomed UTM trajectories alongside an interactive Folium map on `train` trip `00000001`.
 
 ![Figure 5: Road network scale and weakly connected component coverage](eda/figures/fig4_network_size_and_connectivity.png)
 
@@ -61,13 +61,13 @@ To inspect these patterns at street resolution, Figures 7 and 8 present UTM traj
 
 ### 1.3 Feature Extraction and Selection Rationale
 
-Exploration showed ~4.5 m typical noise and dense two-way lane ambiguity. We therefore extracted 24 candidate features solely from GPS coordinates and road geometry. Adding temporal context and graph chain margins separates true roads (`y = 1`) from false candidates (`y = 0`). Figure 9 confirms these class separations across `train`:
+Exploration gave us a clear target: ~4.5 m typical noise plus heavy two-way lane ambiguity. Using only GPS tracks and road geometry, we engineered 24 candidate features across five groups. Figure 9 shows how well those signals pull matched roads (`y = 1`) apart from wrong candidates (`y = 0`) on `train`:
 
-- **Spatial proximity (6 features):** Perpendicular distance has a matched median of 5.12 m against 33.42 m unmatched. Within-ping distance rank shows the strongest target correlation (`r = -0.4811`). Next strongest are the 10 m Gaussian emission prior (`r = +0.4726`) and within-ping z-score (`r = -0.4463`). Distance gap above best candidate (`22.17 m` unmatched median) and ratio to best capture relative closeness.
-- **Projection and geometry (4 features):** Segment projection fraction locates where each ping falls along an arc. Endpoint vertex distances catch intersections, while arc length (`r = +0.1387`, 94.45 m vs. 51.94 m median) separates arterials from short connectors.
-- **Heading and directionality (5 features):** Instantaneous heading cosine (`r = +0.3190`) and sine capture local travel angle. Smoothed 20 m chord cosine hits 0.9987 matched median against -0.0181 unmatched (`r = +0.3522`). Angular error drops to 2.94 deg matched vs. 91.04 deg unmatched, while a binary flag marks forward alignment (97.08% vs. 49.24%).
-- **Kinematics and local window (5 features):** Raw GPS speed and elapsed interval `dt` model motion across sampling gaps. Adjacent smoothed distances (`t - 4` and `t + 4`) form a 3-point window margin (`0.0000 m` matched vs. `23.5209 m` unmatched).
-- **Graph topology and continuity (4 features):** Endpoint in-degree and out-degree capture junction fan-in, while a binary indicator flags bidirectional streets. A two-sided connected-chain margin across `t - 3` and `t + 3` verifies edge continuity (`0.0000 m` matched vs. `42.6893 m` unmatched). Its target correlation reaches `r = -0.2143`.
+- **Spatial proximity (6 features):** Perpendicular distance (5.12 m matched median vs. 33.42 m unmatched) and within-ping distance rank (target correlation `r = -0.4811`) give the strongest direct signal. Distance gap (`22.17 m` unmatched median) and ratio over the closest arc capture local dominance. A within-ping z-score (`r = -0.4463`) and 10 m Gaussian emission prior (`r = +0.4726`) then normalize tight matches across dense intersections.
+- **Projection and geometry (4 features):** Segment projection fraction locates where each ping projects along a street, supported by distances to both endpoint vertices. Longer segments (94.45 m matched median vs. 51.94 m unmatched) help models filter out tiny junction stubs.
+- **Heading and directionality (5 features):** Instantaneous heading sine and cosine capture quick turns. Our 20 m turnaround-aware chord cosine then breaks opposite-direction twin ties cleanly (`0.9987` matched median vs. `-0.0181` unmatched). Median matched chord error drops to 2.94 deg against 91.04 deg on wrong arcs, backed up by a binary forward flag (97.08% vs. 49.24%).
+- **Kinematics and local window (5 features):** Raw GPS speed and elapsed interval `dt` flag stops or signal blackouts. Distances from adjacent smoothed pings (`t - 4` and `t + 4`) build a 3-point window margin (`0.0000 m` matched vs. `23.5209 m` unmatched), rewarding roads that fit the whole trajectory sweep.
+- **Graph topology and continuity (4 features):** Endpoint in-degree and out-degree capture junction structure alongside a binary two-way flag. A two-sided connected-chain margin across `t - 3` and `t + 3` then checks whether neighboring candidates connect seamlessly (`0.0000 m` matched vs. `42.6893 m` unmatched).
 
 ![Figure 9: Feature distributions separating matched candidates from unmatched candidates on train](features/figures/fig2_feature_distributions_pos_vs_neg.png)
 
@@ -75,13 +75,13 @@ Exploration showed ~4.5 m typical noise and dense two-way lane ambiguity. We the
 
 ## 2. Model Experimentation and Comparison
 
-Consecutive 1 Hz pings stay on the same street at similar speed, so random cross-validation (CV) leaks adjacent rows across splits. To measure true cross-city generalization, we evaluate six distinct model families under 5-fold `GroupKFold` grouped by trip identifier.
+Consecutive 1 Hz pings usually sit on the exact same road at the same speed. If you split rows randomly, cross-validation (CV) cheats by peeking at adjacent seconds of the same trip. To test how models generalize to unseen cities, we grouped everything by trip ID using 5-fold `GroupKFold`.
 
-Each CV fold fits on every third training observation and validates on 100% of held-out trips. Afterward, each model trains on the full strided `train` split and predicts all 10 `student_test` trips (19,160 observations, 153,280 candidate pairs). We score candidate predictions via Macro F1 and probability Log Loss. Sequential route quality uses observation Top-1 Accuracy and pooled Route Continuity (valid graph transitions between adjacent predictions).
+Each fold trains on every third observation to keep runtime manageable and validates across every held-out fold ping. We then refit on all 80 `train` trips and test unstrided on all 10 `student_test` trips (`19,160` observations, `153,280` candidate pairs).
 
 ### 2.1 Consolidated Model Comparison
 
-Table 2 compares all six model families across `train` CV and `student_test`. Two behavioral patterns emerge across this benchmark. Tree ensembles separate integer distance ranks and node degrees better than linear or neural models. Naive Bayes, by contrast, suffers severe probability distortion despite competitive top-1 ranking.
+Table 2 stacks all six model families side by side across `train` CV and `student_test`. Two things jump off the table right away. Tree models split discrete distance ranks and node degrees much better than linear or neural baselines. Meanwhile, Gaussian Naive Bayes ranks reasonably well per ping (`91.97%` Top-1) yet blows its probability loss sky high (`1.3652`).
 
 | Model | Algorithm Family | Key Configuration | CV Macro F1 (Std) | Top-1 Acc (Test) | Route Continuity (Test) | Student-Test Macro F1 | Log Loss (Test) | Inference Time (10 trips) |
 |---|---|---|---:|---:|---:|---:|---:|---:|
@@ -92,93 +92,93 @@ Table 2 compares all six model families across `train` CV and `student_test`. Tw
 | **LightGBM** | **Gradient Boosting** | `n_estimators=200`, `lr=0.08`, `num_leaves=31`, `min_child=50`, `subsample_freq=1` | **0.9489 (0.0369)** | **94.4676%** | **95.9373%** | **0.9664** | **0.0418** | 0.1471 s |
 | MLP Neural Network | Neural Networks | StandardScaler + `(64, 32)`, `early_stopping=True`, `batch=2048` | 0.9399 (0.0389) | 93.6534% | 94.4230% | 0.9549 | 0.0539 | 0.0404 s |
 
-Two experimental details clarify Table 2. First, Fold 0 drops to 49.84% to 51.54% Top-1 Accuracy across all models, whereas Folds 1 to 4 score 82.16% to 95.10%. Group splitting isolates high-offset trip `00000054` (19,313 observations, 138.59 m median offset) inside Fold 0 without leaking its points into training. Second, LightGBM leads all 5 CV folds in Macro F1, though fold Top-1 winners differ slightly. Random Forest leads Folds 1 and 2, while Decision Tree leads Fold 4.
+Two quirks in Table 2 are worth calling out. First, every single model drops to roughly `50%` Top-1 Accuracy in Fold 0 (`49.84%` to `51.54%`) compared to `82.16%` to `95.10%` across Folds 1 through 4. That happens because `GroupKFold` drops the huge `138.59 m` outlier trip `00000054` (`19,313` pings) straight into Fold 0. Keeping that brutal split keeps our validation honest. Second, while LightGBM wins Macro F1 on every fold, Top-1 leaders swap slightly per fold (`Random Forest` takes Folds 1 and 2, `Decision Tree` takes Fold 4).
 
-Also note how continuity is defined here versus Section 4. Sections 2 and 3 track pooled directed transitions across all 19,150 consecutive `student_test` pairs. Section 4 reports unweighted per-trip means and final continuous route continuity.
+Also keep in mind what `Route Continuity` measures here versus later in Section 4. Sections 2 and 3 track pooled step transitions across all `19,150` adjacent `student_test` pairs, whereas Section 4 reports unweighted per-trip continuity after route reconstruction.
 
 ---
 
 ### 2.2 Individual Model Analysis
 
-Below we examine each model family in detail using the metrics underlying Table 2.
+Table 2 gives the high-level scorecard, so let's break down how each model actually behaves on the problem.
 
 #### 1. Logistic Regression (Linear)
 - **A. Model Understanding:**
-  - **Suitability:** Linear classifiers weight candidate rank and Gaussian priors into smooth log-odds probabilities. This creates a transparent baseline before testing nonlinear splits.
-  - **Strengths and limitations:** The full refit finishes in 1.958 s with near-zero train-to-validation gap. Yet a single hyperplane cannot model nonlinear interactions during GPS dropouts or complex junctions.
+  - **Suitability:** Fitting a weighted sum over distance rank and spatial priors gives smooth log-odds probabilities. Think of it as our clean sanity-check baseline before pulling out nonlinear models.
+  - **Strengths and limitations:** Refitting across `train` takes `1.958 s` with almost zero overfitting. Still, one flat hyperplane just cannot bend around red-light jitter or complex multi-way intersections.
 - **B. Training and Configuration:**
-  - **Hyperparameters:** Standardized inputs feed L2 `LogisticRegression(C=1.0, max_iter=500, random_state=42)`.
-  - **Objective function:** Training minimizes L2-regularized binary cross-entropy loss.
+  - **Hyperparameters:** Standardized features feed L2-penalized `LogisticRegression(C=1.0, max_iter=500, random_state=42)`.
+  - **Objective function:** Minimizes L2-regularized binary cross-entropy loss.
 - **C. Experimental Results:**
-  - **Student-test behavior:** Inference finishes in 0.0254 s with balanced Positive Precision (`0.8865`) and Positive Recall (`0.8752`). Positive F1 reaches `0.8808`, while pooled Route Continuity hits `93.3420%`.
-  - **Observation scores:** Scalar evaluation confirms linear limits on `student_test`. Top-1 Accuracy sits at 92.2651% (`0.9320` Macro F1) with 0.0831 Log Loss.
-  - **Fit assessment:** Logistic Regression underfits relative to tree ensembles. Training Macro F1 (`0.9199`) closely matches CV (`0.9154`) and sits well below LightGBM (`0.9732`).
+  - **Student-test behavior:** Inference finishes in `0.0254 s` with steady precision (`0.8865`) and recall (`0.8752`), giving `0.8808` Positive F1 and `93.3420%` pooled Route Continuity.
+  - **Observation scores:** Top-1 Accuracy sits at `92.2651%` with `0.9320` Macro F1 and `0.0831` Log Loss.
+  - **Fit assessment:** Classic underfitting. Training Macro F1 (`0.9199`) nearly matches CV (`0.9154`), leaving plenty of signal on the table relative to LightGBM (`0.9732` train).
 
 #### 2. Gaussian Naive Bayes (Probabilistic)
 - **A. Model Understanding:**
-  - **Suitability:** Fitting univariate class-conditional Gaussians provides a fast generative probability baseline.
-  - **Strengths and limitations:** The full refit finishes in 0.676 s. Conditional independence fails because raw distance overlaps strongly with temporal window and graph chain margins. Multiplying correlated features drives confidence toward 0 or 1.
+  - **Suitability:** Modeling class-conditional Gaussian distributions per feature is fast and simple to interpret.
+  - **Strengths and limitations:** Full refit finishes in just `0.676 s`. However, Naive Bayes assumes features are independent, which breaks down when spatial distance and graph chain margins track the same road geometry. Multiplying correlated likelihoods pushes predicted probabilities to extreme `0` or `1`.
 - **B. Training and Configuration:**
   - **Hyperparameters:** Scaled features feed `GaussianNB(var_smoothing=1e-6)`.
   - **Objective function:** Maximum likelihood estimates per-feature Gaussian class parameters via Bayes' rule.
 - **C. Experimental Results:**
-  - **Student-test behavior:** Saturated probabilities flood positive predictions (`0.9842` Positive Recall vs. `0.5039` Precision), dropping Positive F1 to `0.6665`. Pooled Route Continuity falls to `92.4491%` in 0.0695 s inference.
-  - **Observation scores:** Per-ping argmax preserves 91.9676% Top-1 Accuracy, yet Macro F1 collapses to 0.7957 at 1.3652 Log Loss. Such overconfident log-probabilities would distort Hidden Markov Model (HMM) emission scoring during Viterbi sequence decoding.
-  - **Fit assessment:** High structural bias causes severe underfitting across training (`0.7810` Macro F1) and validation (`0.7943`).
+  - **Student-test behavior:** Saturated scores flood positive predictions (`0.9842` Recall against `0.5039` Precision), crashing Positive F1 to `0.6665` with `92.4491%` continuity (`0.0695 s` inference).
+  - **Observation scores:** Taking the per-ping argmax still recovers `91.9676%` Top-1 Accuracy, yet Macro F1 sinks to `0.7957`. Its `1.3652` Log Loss would poison Hidden Markov Model (HMM) emission scores if passed to Viterbi decoding.
+  - **Fit assessment:** Severe underfitting across both training (`0.7810` Macro F1) and cross-validation (`0.7943`) due to rigid independence assumptions.
 
 #### 3. Decision Tree (Tree-based)
 - **A. Model Understanding:**
-  - **Suitability:** Decision trees threshold discrete distance ranks and integer node degrees without scaling inputs.
-  - **Strengths and limitations:** Depth-bounded rules yield our fastest inference latency (`0.0065 s` over 10 trips). Greedy axis splits still overfit regional fold differences, giving the largest CV fold standard deviation (`0.0618`).
+  - **Suitability:** Trees handle integer distance ranks and node degrees natively using threshold splits without scaling inputs.
+  - **Strengths and limitations:** Depth limits give us our fastest inference across all six models (`0.0065 s` for 10 trips). On the flip side, greedy single-tree splits bounce around between regional folds (CV std `0.0618`).
 - **B. Training and Configuration:**
-  - **Hyperparameters:** We train `DecisionTreeClassifier(max_depth=12, min_samples_leaf=50, random_state=42)`.
+  - **Hyperparameters:** Configured as `DecisionTreeClassifier(max_depth=12, min_samples_leaf=50, random_state=42)`.
   - **Objective function:** Recursive splits minimize node Gini impurity.
 - **C. Experimental Results:**
-  - **Student-test behavior:** Positive Precision reaches `0.9414` with `0.9279` Positive Recall (`0.9346` Positive F1). Pooled Route Continuity jumps to `95.1436%` over linear and naive baselines.
-  - **Observation scores:** Candidate Macro F1 reaches `0.9627` at `0.0551` Log Loss. Observation Top-1 Accuracy climbs to `93.6273%`.
-  - **Fit assessment:** Moderate overfitting separates training Macro F1 (`0.9643`) from CV (`0.9317`), creating higher fold variance than ensembles.
+  - **Student-test behavior:** Precision (`0.9414`) and recall (`0.9279`) push Positive F1 to `0.9346`, lifting pooled Route Continuity to `95.1436%` over linear and Naive Bayes models.
+  - **Observation scores:** Student-test Top-1 Accuracy climbs to `93.6273%` (`0.9627` Macro F1) while Log Loss improves to `0.0551`.
+  - **Fit assessment:** Moderate overfitting. Training Macro F1 (`0.9643`) pulls `0.0326` ahead of CV (`0.9317`), showing why single trees are noisier than ensembles.
 
 #### 4. Random Forest (Ensemble Bagging)
 - **A. Model Understanding:**
-  - **Suitability:** Averaging 80 bootstrap trees reduces split variance across congested multi-way junctions.
-  - **Strengths and limitations:** Bagging reaches the highest Positive Precision across all models (`0.9544`) while tightening fold consistency. Its main practical cost is a 20.097 s refit time.
+  - **Suitability:** Averaging 80 bootstrap trees smooths out brittle split boundaries at dense multi-lane junctions.
+  - **Strengths and limitations:** Bagging takes the crown for highest Positive Precision (`0.9544`) while slashing CV variance compared to a single tree. The catch is slow training (`20.097 s`).
 - **B. Training and Configuration:**
-  - **Hyperparameters:** We evaluate `RandomForestClassifier(n_estimators=80, max_depth=14, min_samples_leaf=20, random_state=42)`.
-  - **Objective function:** Bootstrap trees individually minimize node Gini impurity.
+  - **Hyperparameters:** Configured as `RandomForestClassifier(n_estimators=80, max_depth=14, min_samples_leaf=20, random_state=42)`.
+  - **Objective function:** Bootstrap trees minimize Gini impurity independently on random sample subsets.
 - **C. Experimental Results:**
-  - **Student-test behavior:** Conservative splits yield `0.9351` Positive F1 (`0.9165` Positive Recall). Pooled Route Continuity reaches `95.2428%` in 0.0998 s.
-  - **Observation scores:** Student-test Log Loss drops to `0.0454` at `0.9630` Macro F1. Top-1 Accuracy rises to `94.0292%`.
-  - **Fit assessment:** Generalization holds steady between training Macro F1 (`0.9672`) and CV (`0.9466`, std `0.0373`).
+  - **Student-test behavior:** Conservative splits score `0.9351` Positive F1 (`0.9165` Recall) alongside `95.2428%` Route Continuity in `0.0998 s`.
+  - **Observation scores:** Log Loss drops to `0.0454` with `0.9630` Macro F1, lifting Top-1 Accuracy to `94.0292%`.
+  - **Fit assessment:** Balanced generalization with training Macro F1 (`0.9672`) tracking closely above CV (`0.9466`, std `0.0373`).
 
 #### 5. LightGBM (Gradient Boosting, Selected Model)
 - **A. Model Understanding:**
-  - **Suitability:** Histogram gradient-boosted trees optimize binary log loss directly, producing low-loss probability scores suited to HMM emissions.
-  - **Strengths and limitations:** LightGBM leads all 5 CV folds in Macro F1 (`0.8716` to `0.9685`). Its full refit (`3.360 s`) runs 6.0x faster than Random Forest (`20.097 s`), with `0.1471 s` test inference. Its deeper tree capacity motivates hyperparameter tuning to improve Log Loss further.
+  - **Suitability:** Histogram gradient boosting minimizes binary log loss iteratively, giving us sharp, low-loss probabilities ready for HMM emission scoring.
+  - **Strengths and limitations:** LightGBM leads every single CV fold in Macro F1 (`0.8716` to `0.9685`). It refits `6.0x` faster than Random Forest (`3.360 s` vs. `20.097 s`) and runs 10-trip inference in `0.1471 s`. Only its late-iteration Fold 0 validation loss needs tighter tree constraints.
 - **B. Training and Configuration:**
-  - **Hyperparameters:** We train `LGBMClassifier(n_estimators=200, learning_rate=0.08, num_leaves=31, min_child_samples=50, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=42)`. Row subsampling stays active (`subsample_freq=1`) across experiments.
-  - **Objective function:** Leaf-wise boosting minimizes binary cross-entropy loss.
+  - **Hyperparameters:** `LGBMClassifier(n_estimators=200, learning_rate=0.08, num_leaves=31, min_child_samples=50, subsample=0.8, subsample_freq=1, colsample_bytree=0.8, random_state=42)`. Row subsampling stays active (`subsample_freq=1`) across all boosting runs.
+  - **Objective function:** Leaf-wise boosting directly minimizes binary cross-entropy loss.
 - **C. Experimental Results:**
-  - **Student-test behavior:** Positive Precision hits `0.9444` with `0.9378` Positive Recall (`0.9411` Positive F1). Pooled Route Continuity leads every model at `95.9373%`.
-  - **Observation scores:** LightGBM wins both Top-1 Accuracy (`94.4676%`) and Macro F1 (`0.9664`). It also records our lowest Log Loss (`0.0418`).
-  - **Fit assessment:** Aggregate generalization appears strong (`0.9732` training vs. `0.9489` CV). Looking at Fold 0's logged history in Figure 13, validation loss bottoms out early before climbing across later iterations. Section 3 searches LightGBM sampling and leaf-size settings.
+  - **Student-test behavior:** Balanced Positive Precision (`0.9444`) and Recall (`0.9378`) lift Positive F1 to `0.9411`, leading all baselines at `95.9373%` Route Continuity.
+  - **Observation scores:** LightGBM tops `student_test` on both Top-1 Accuracy (`94.4676%`) and Macro F1 (`0.9664`), while also posting our lowest Log Loss (`0.0418`).
+  - **Fit assessment:** Aggregate generalization looks healthy (`0.9732` train vs. `0.9489` CV). Looking at Fold 0 in Figure 13, though, validation loss bottoms out early before creeping back up across later iterations. Section 3 searches sampling and leaf-size settings to tighten that curve.
 
 #### 6. MLP Neural Network (Neural Networks)
 - **A. Model Understanding:**
-  - **Suitability:** Multi-Layer Perceptrons (MLPs) fit smooth continuous decision boundaries across standardized geometric features.
-  - **Strengths and limitations:** Batch inference runs fast (`0.0404 s`) at `0.0539` Log Loss. Smooth activations still lag boosted trees slightly on discrete candidate distance ranks and integer node degrees.
+  - **Suitability:** A two-layer Multi-Layer Perceptron (MLP) learns smooth nonlinear surfaces across scaled geometry and trajectory features.
+  - **Strengths and limitations:** Batch inference finishes fast (`0.0404 s`) with clean Log Loss (`0.0539`). Smooth weights still trail trees slightly when thresholding discrete candidate distance ranks and integer node degrees.
 - **B. Training and Configuration:**
-  - **Hyperparameters:** Scaled features feed `MLPClassifier(hidden_layer_sizes=(64, 32), alpha=1e-4, learning_rate_init=1e-3, max_iter=35, batch_size=2048, tol=1e-3, early_stopping=True, validation_fraction=0.1, n_iter_no_change=4, random_state=42)`.
+  - **Hyperparameters:** Standardized inputs feed `MLPClassifier(hidden_layer_sizes=(64, 32), alpha=1e-4, learning_rate_init=1e-3, max_iter=35, batch_size=2048, tol=1e-3, early_stopping=True, validation_fraction=0.1, n_iter_no_change=4, random_state=42)`.
   - **Objective function:** Adam optimizes L2-regularized binary cross-entropy.
 - **C. Experimental Results:**
-  - **Student-test behavior:** Positive Precision reaches `0.9393` with `0.9030` Positive Recall (`0.9208` Positive F1). Pooled Route Continuity reaches `94.4230%`.
-  - **Observation scores:** The network scores `0.9549` Macro F1 on `student_test` at `0.0539` Log Loss. Observation Top-1 Accuracy stands at `93.6534%`.
-  - **Fit assessment:** Low variance separates training Macro F1 (`0.9498`) from CV (`0.9399`). Early stopping monitors internal validation accuracy across training epochs (Figure 13).
+  - **Student-test behavior:** Hits `0.9393` Precision and `0.9030` Recall (`0.9208` Positive F1) with `94.4230%` pooled Route Continuity.
+  - **Observation scores:** Achieves `93.6534%` Top-1 Accuracy alongside `0.9549` Macro F1 and `0.0539` Log Loss.
+  - **Fit assessment:** Low variance between training (`0.9498`) and CV (`0.9399`), with early stopping monitoring internal validation accuracy across epochs (Figure 13).
 
 ---
 
 ### 2.3 Model Visualizations
 
-Beyond scalar tables, visual checks clarify where errors and log-loss behavior diverge across families. Figures 10 through 13 examine cross-partition accuracy and loss curves. They also compare candidate confusion matrices and measured training histories.
+Numbers in a table only tell half the story. Figures 10 and 11 plot cross-partition gaps and probability loss against continuity. Figures 12 and 13 then show the confusion matrices and actual measured training curves.
 
 ![Figure 10: Cross-validation versus student_test Macro F1 and Top-1 Accuracy across all six models](models/figures/fig1_cv_and_test_model_comparison.png)
 
@@ -192,14 +192,14 @@ Beyond scalar tables, visual checks clarify where errors and log-loss behavior d
 
 ## 3. Bayesian Hyperparameter Optimization
 
-LightGBM led every competing model in CV Macro F1 (`0.9489`) and Test Log Loss (`0.0418`). To improve cross-validation scores and probability Log Loss, we ran Optuna's Tree-structured Parzen Estimator (TPE) instead of grid search:
+LightGBM already led every model on CV Macro F1 (`0.9489`) and Log Loss (`0.0418`). Instead of burning compute on a brute-force grid search across thousands of combinations, we ran Optuna's Tree-structured Parzen Estimator (TPE) to explore eight parameters efficiently:-
 
-1. **Hyperparameters included:** Search dimensions cover tree count (`n_estimators`) and step rate (`learning_rate`). Capacity controls tune `num_leaves` plus `max_depth` (`min_child_samples` bounds leaf mass). Regularization tunes L2 `reg_lambda`. Subsampling tunes observation fraction `subsample` and feature fraction `colsample_bytree` (`subsample_freq=1` stays active).
-2. **Search ranges:** Integer bounds sample `n_estimators` (`[120, 400]`) and `num_leaves` (`[15, 95]`). Depth limits span `max_depth` (`[4, 12]`) with `min_child_samples` (`[20, 150]`). Continuous sampling draws log-uniform `learning_rate` (`[0.02, 0.18]`) and `reg_lambda` (`[1e-3, 10.0]`), while `subsample` and `colsample_bytree` span `[0.65, 1.0]`.
-3. **Objective function:** Trials maximize 5-fold `GroupKFold` out-of-fold Macro F1 on `train` using every fifth training observation. Final Table 3 evaluation fits untuned and tuned models identically on every third training observation. Both then evaluate over full validation folds and `student_test`. Standalone untuned timing yields `0.1461 s` inference (within `1 ms` of Table 2) and a `3.282 s` refit.
-4. **Number of trials:** We ran 25 seeded Optuna TPE trials totaling `646.04 s` across all evaluations.
-5. **Best hyperparameters:** Trial 19 reached the top search CV Macro F1 (`0.95054`). Its booster used `n_estimators=385` at `learning_rate=0.02365`, setting `num_leaves=88` (`max_depth=10`, `min_child_samples=97`). Sampling chose `subsample=0.67683` (`colsample_bytree=0.72281`, `reg_lambda=0.00105`).
-6. **Did the tuned model outperform the untuned model?** Yes, across CV accuracy and Log Loss (Table 3 and Figure 14). Smaller gradient steps across 385 trees with stricter subsampling and larger leaf minimums cut CV Log Loss from `0.0836` to `0.0788`. On `student_test`, Log Loss drops from `0.0418` to `0.0404`. Top-1 Accuracy rises from `94.4676%` to `94.5929%`, lifting Macro F1 to `0.9674`. Evaluating 385 trees slows batch inference by `2.81x` (`0.4112 s` vs. `0.1461 s`). Macro F1 gains also sit inside fold variance (std `0.0363`), yet lower Log Loss gives cleaner margins for HMM decoding.
+1. **Hyperparameters included:** We tuned tree count (`n_estimators`) and learning rate (`learning_rate`). Tree capacity bounds include `num_leaves` plus `max_depth`, alongside minimum leaf size (`min_child_samples`). To reduce variance, we tuned L2 regularization (`reg_lambda`) alongside observation subsampling (`subsample`) and feature fraction (`colsample_bytree`), keeping `subsample_freq=1` active.
+2. **Search ranges:** Integer bounds explored `n_estimators` (`[120, 400]`) and `num_leaves` (`[15, 95]`), while depth and leaf constraints spanned `max_depth` (`[4, 12]`) and `min_child_samples` (`[20, 150]`). Continuous sampling drew log-uniform `learning_rate` (`[0.02, 0.18]`) alongside `reg_lambda` (`[1e-3, 10.0]`), while `subsample` and `colsample_bytree` covered `[0.65, 1.0]`.
+3. **Objective function:** Every Optuna trial maximized 5-fold `GroupKFold` out-of-fold Macro F1 on `train` (fitting on every fifth observation for search speed). For final Table 3 verification, both untuned and tuned models fit identically on every third training observation and score full validation folds plus `student_test`. Standalone timing inside Table 3 puts untuned inference at `0.1461 s` (within `1 ms` of Table 2) and refit time at `3.282 s`.
+4. **Number of trials:** We ran 25 seeded Optuna TPE trials totaling `646.04 s`.
+5. **Best hyperparameters:** Trial 19 scored the highest search CV Macro F1 (`0.95054`), picking smaller gradient steps (`learning_rate=0.02365`) over `n_estimators=385` trees (`num_leaves=88`, `max_depth=10`). Stronger subsampling and leaf limits settled at `min_child_samples=97` with `subsample=0.67683`, while `colsample_bytree=0.72281` and `reg_lambda=0.00105` finished the configuration.
+6. **Did the tuned model outperform the untuned model?** Yes, though the gain comes mostly in probability quality rather than a huge F1 jump (Table 3 and Figure 14). Smaller gradient steps with heavier subsampling drop CV Log Loss from `0.0836` to `0.0788`, and `student_test` Log Loss from `0.0418` to `0.0404`. Top-1 Accuracy inches up to `94.5929%` (`0.9674` Macro F1). That sits well inside fold variance (`0.0363` std) and slows batch inference `2.81x` (`0.4112 s` vs. `0.1461 s`), yet tighter Log Loss gives Viterbi cleaner margins on tricky junctions.
 
 | Variant | CV Macro F1 (Std) | CV Top-1 Acc | CV Log Loss | Student-Test Macro F1 | Student-Test Top-1 Acc | Student-Test Log Loss | Route Continuity (Test) | Train Time | Inf Time (10 trips) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -212,33 +212,33 @@ LightGBM led every competing model in CV Macro F1 (`0.9489`) and Test Log Loss (
 
 ## 4. HMM and Viterbi Route Reconstruction
 
-Independent ping classifiers ignore road graph connectivity between time steps. One noisy GPS reading can therefore trigger a sudden jump onto a side street. Decoding candidate sequences via Viterbi dynamic programming resolves that pointwise flaw.
+Even a strong classifier scores every GPS ping in isolation. One noisy coordinate can push a prediction onto a side street for a single second and jump straight back on the next ping. Decoding the entire sequence through a Hidden Markov Model (HMM) with Viterbi dynamic programming fixes that myopia.
 
 ### 4.1 Hidden States and Graph Transitions
 
-We formulate sequence decoding over candidate road edges at each timestamp:
+Think of route reconstruction as finding the highest-scoring walk across a sequence of candidate road states:-
 
-1. **Hidden states:** At every GPS index `t`, the `K = 8` hidden states represent the top-8 candidate segments returned by our spatial tree.
-2. **Emission log-probabilities:** Emissions combine LightGBM probability `p[t, k]` with spatial distance `d_arc[t, k]` and 20 m smoothed chord alignment `cos_sm[t, k]`:
+1. **Hidden states:** At every GPS point `t`, the `K = 8` hidden states are the top-8 candidate segments returned by our spatial tree.
+2. **Emission log-probabilities:** Each candidate score blends LightGBM confidence `p[t, k]` with spatial distance `d_arc[t, k]` and 20 m smoothed chord alignment `cos_sm[t, k]`:
    `emit_log[t, k] = alpha_emit * log(clip(p[t, k], 1e-6, 1 - 1e-6)) - geom_weight * (d_arc[t, k] + 1.5 * (1 - cos_sm[t, k]))`.
-3. **Transition log-probabilities:** Directed graph transitions compare physical route distance `d_road` against GPS displacement `d_gps` over elapsed interval `dt`. Let `f_prev` and `f_cur` be normalized projection fractions in `[0, 1]` along the previous and current segments:
-   - Staying on arc `a` (`length = L_a`) sets `d_road = |f_cur - f_prev| * L_a`, paying no `switch_cost`. Its transition score is `-min(max_conn_penalty, beta_trans * |d_road - d_gps| / sqrt(dt)) - backtrack_cost * I(f_cur < f_prev - 0.12)`.
-   - Switching from arc `a` (`u_a -> v_a`) to arc `b` (`u_b -> v_b` with length `L_b`) runs bounded Dijkstra from `v_a` to `u_b`. Up to `3,000` node pops find shortest gap length `d_sp`, giving `d_road = (1 - f_prev) * L_a + d_sp + f_cur * L_b`. Reachable switches score `-min(max_conn_penalty, beta_trans * |d_road - d_gps| / sqrt(dt)) - switch_cost - min(25.0, sp_weight * d_sp / sp_gap_scale) - uturn_cost * I(u_b == v_a and v_b == u_a)`. Indicator `I(...)` marks backward reversals or U-turns, while `sp_gap_scale` equals `1.0` up to `5 s` and `sqrt(dt / 5.0)` beyond.
-   - Unreachable arc pairs incur a disconnected step score of `-gap_disc_pen`.
+3. **Transition log-probabilities:** Transitions check whether driving along the road graph (`d_road`) actually matches straight-line GPS displacement (`d_gps`) over time gap `dt`. Let `f_prev` and `f_cur` be normalized projection fractions in `[0, 1]` along the previous and current edges:
+   - Staying on arc `a` (`length = L_a`) sets `d_road = |f_cur - f_prev| * L_a`, paying no switching penalty (`switch_cost`). Its score is `-min(max_conn_penalty, beta_trans * |d_road - d_gps| / sqrt(dt)) - backtrack_cost * I(f_cur < f_prev - 0.12)`, where `I(...)` flags backward slips below `f_prev - 0.12`.
+   - Switching from arc `a` (`u_a -> v_a`) to arc `b` (`u_b -> v_b` with length `L_b`) runs bounded Dijkstra from `v_a` to `u_b` (`3,000`-pop limit) to find shortest path `d_sp`. Total road distance becomes `d_road = (1 - f_prev) * L_a + d_sp + f_cur * L_b`. Reachable jumps score `-min(max_conn_penalty, beta_trans * |d_road - d_gps| / sqrt(dt)) - switch_cost - min(25.0, sp_weight * d_sp / sp_gap_scale) - uturn_cost * I(u_b == v_a and v_b == u_a)`. Here `I(...)` penalizes U-turns, while `sp_gap_scale` stays `1.0` up to `5 s` and expands to `sqrt(dt / 5.0)` beyond.
+   - If no directed path reaches `u_b` within bounds, the step incurs `-gap_disc_pen`.
 
-To keep `student_test` unseen during transition tuning, we tested six configs on 6 stratified `train` trips (`379` to `2,580` points). Config 1 led on Route F1 (`93.5408%`) and realigned Top-1 (`97.5965%`), reaching `99.6647%` continuity. Emission weights use `alpha_emit=1.0` (`geom_weight=0.5`), while step weights set `beta_trans=0.35` (`switch_cost=1.0`). Shortest-path bounds set `sp_weight=0.10` (`max_conn_penalty=30.0`, `disconnect_penalty=80.0`), with reversals penalized via `uturn_cost=8.0` and `backtrack_cost=4.0`.
+To avoid tuning transitions on `student_test`, we tested six configs across 6 stratified `train` trips (`379` to `2,580` points). Config 1 won on both Route F1 (`93.5408%`) and realigned Top-1 (`97.5965%`), reaching `99.6647%` continuity. It weights emissions using `alpha_emit=1.0` and `geom_weight=0.5`, with step costs `beta_trans=0.35` and `switch_cost=1.0`. Shortest-path settings keep `sp_weight=0.10` with `max_conn_penalty=30.0` (`disconnect_penalty=80.0`), while reversal penalties sit at `uturn_cost=8.0` and `backtrack_cost=4.0`.
 
 ### 4.2 GPS Gaps and Disconnected Routes
 
-Real vehicle logs experience signal blackouts across tunnels and lose tiny junction connectors outside top-8 candidates. Our decoder handles both edge cases smoothly:
+Real urban drives drop GPS fixes in tunnels and sometimes omit tiny intersection links from top-8 candidates. Here is how the decoder handles both:-
 
-1. **Missing candidates and GPS blackouts:** Kinematic tolerance scales with `sqrt(dt)`, while `sp_gap_scale` widens as `sqrt(dt / 5.0)` beyond `5 s`. Bounded Dijkstra widens its search radius dynamically up to `3,500 m` across long gaps while keeping its `3,000`-pop limit. Gap disconnection penalty `gap_disc_pen` uses `max(max_conn_penalty + 35.0, disconnect_penalty / sp_gap_scale)`. Keeping that floor at `65.0` exceeds the `64.0` worst connected transition, so bridged paths beat disconnected teleports.
-2. **Disconnected consecutive segments:** When a true connector drops out of top-8 candidates, Viterbi selects connected neighboring roads flanking the gap. Post-decoding cleanup removes consecutive duplicates and bridges hops up to `1,500 m` via shortest directed paths. Zero Dijkstra truncations occurred across all 10 `student_test` trips.
-3. **Continuous boundary realignment:** Transition penalties make raw Viterbi delay some intersection switches by one or two seconds. Once our continuous route sequence finishes, boundary realignment runs monotonic DP exclusively along that predicted arc list. Only raw positions and smoothed chords guide that pass, so deleting ground-truth routes leaves all predictions unchanged.
+1. **Missing candidates and GPS blackouts:** Distance tolerance scales by `sqrt(dt)`, while shortest-path slack widens as `sqrt(dt / 5.0)` past `5 s`. Bounded Dijkstra also opens its search radius dynamically up to `3,500 m` across long gaps while keeping its `3,000`-pop cap. Disconnection penalty `gap_disc_pen` uses `max(max_conn_penalty + 35.0, disconnect_penalty / sp_gap_scale)`, holding at least `65.0`. Since `65.0` beats the worst connected penalty (`64.0`), true road bridges still win over disconnected teleports.
+2. **Disconnected consecutive segments:** Even when a connector segment drops out of top-8 candidates, Viterbi locks onto valid edges before and after the break. Route assembly then drops repeated IDs and stitches gaps up to `1,500 m` along shortest directed paths. Across all 10 `student_test` trips, zero Dijkstra truncations occurred.
+3. **Continuous boundary realignment:** Because switching arcs pays `switch_cost`, raw Viterbi paths sometimes trail real intersection crossings by a second or two. Once the continuous route sequence is assembled, boundary realignment runs monotonic DP along those predicted segments using raw positions and smoothed chords. Delete ground-truth routes from disk and predictions remain untouched.
 
 ### 4.3 Classifier Versus HMM Performance
 
-Table 4 contrasts tuned LightGBM alone against pre-realignment HMM decoding and full boundary realignment on `student_test`. Alongside point Top-1 Accuracy, Table 4 reports set-level agreement over unique predicted arcs versus ground truth (Precision through Jaccard). Notice how strongly point accuracy diverges from route-level precision.
+Table 4 compares standalone tuned LightGBM against raw HMM decoding and full boundary realignment on `student_test`. Alongside ping-level Top-1 Accuracy, Precision through Jaccard measure unique-arc set agreement against ground truth. Notice right away why ping accuracy alone hides whole-route quality.
 
 | Method | Weighted Obs Top-1 Acc | Mean Obs Continuity | Reconstructed Seq Continuity | Mean Route Arc Precision | Mean Route Arc Recall | Mean Route Arc F1 vs. Reference Route | Mean Route Jaccard | Total Inf Time (10 trips) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -246,21 +246,21 @@ Table 4 contrasts tuned LightGBM alone against pre-realignment HMM decoding and 
 | Hybrid HMM/Viterbi (Pre-Realignment) | 96.7589% | **97.8494%** | **99.7940%** | **93.9500%** | **99.0493%** | **96.3390%** | **93.0827%** | 7.4079 s |
 | **Hybrid HMM/Viterbi + Boundary Realignment** | **97.7036%** | 97.7155% | **99.7940%** | **93.9500%** | **99.0493%** | **96.3390%** | **93.0827%** | 7.4079 s |
 
-**Did HMM decoding improve the final route?** Yes, across point accuracy and topological path quality. Standalone classification hits 94.5929% Top-1 Accuracy, yet momentary 1-second side-street detours drag Mean Route Arc Precision to 76.5206% (85.4611% Route F1). Adding Viterbi decoding with boundary realignment prunes those detours and lifts Top-1 Accuracy by +3.11 percentage points (`pp`) to 97.7036%.
+**Did HMM decoding improve the final route?** Yes, across both point accuracy and topological path quality. LightGBM alone reaches `94.5929%` Top-1 Accuracy, yet tiny 1-second detours onto side streets pull Mean Route Arc Precision down to `76.5206%` (`85.4611%` Route F1). Adding Viterbi plus boundary realignment strips away those noisy flips, lifting Top-1 Accuracy `+3.11` percentage points (`pp`) to `97.7036%`.
 
-Route-level gains are even larger, as plotted across trips in Figure 15. Mean Route Arc Precision climbs +17.43 pp to 93.9500%, raising Mean Route Arc F1 by +10.88 pp to 96.3390%. Reconstructed Sequence Continuity reaches 99.7940%, achieving 100.00% continuity on seven trips and above 98.98% on all others.
+Set-level route metrics jump even higher (Figure 15). Mean Route Arc Precision climbs `+17.43 pp` to `93.9500%`, pushing Mean Route Arc F1 up `+10.88 pp` to `96.3390%`. Sequence Continuity reaches `99.7940%`, hitting `100.00%` on seven trips and above `98.98%` on the rest.
 
-Three practical limitations remain after sequential decoding:
+Still, sequential decoding leaves three practical trade-offs:-
 
-- **Higher inference latency:** Bounded Dijkstra queries raise 10-trip latency from 0.4284 s to 7.4079 s (roughly 741 ms per trip).
-- **Dense two-way grids:** Tight urban grid trip `00000009` finishes at 92.6597% Top-1 Accuracy with 21 remaining opposite-lane points. On unseen trip `00000059` later (Section 6.2), raw HMM dips slightly below classifier accuracy (`95.0533%` vs. `95.1503%`). Boundary realignment still lifts final accuracy to `98.5451%`.
-- **Short fillet step-over:** Monotonic boundary alignment lowers Mean Observation Continuity by 0.13 pp (`97.8494%` to `97.7155%`). Fast pings sometimes step directly across short intersection turn fillets that remain preserved in the continuous path list.
+- **Higher inference latency:** Bounded Dijkstra queries push 10-trip latency from `0.4284 s` up to `7.4079 s` (~`741 ms` per trip).
+- **Dense two-way grids:** Tight city blocks can still confuse close headings. Trip `00000009` ends at `92.6597%` Top-1 with `21` remaining opposite-lane pings. Later on unseen trip `00000059` (Section 6.2), raw HMM dips slightly below classifier accuracy (`95.0533%` vs. `95.1503%`) before boundary realignment recovers `98.5451%`.
+- **Short fillet step-over:** Boundary realignment trades `0.13 pp` of Mean Observation Continuity (`97.8494%` to `97.7155%`) when fast pings step cleanly past short turn fillets, though those edges stay intact inside the continuous route list.
 
 ![Figure 15: Classifier-Only vs. Final HMM aggregate and per-trip Route Arc F1](hmm/figures/fig1_classifier_vs_hmm_metrics.png)
 
 ### 4.4 Incremental Gains Across Stages
 
-To confirm that gains hold outside trip `00000077`, Table 5 splits `student_test` into trip `00000077` versus the remaining nine trips (`15,249` observations). Stages 0 through 4 trace each architectural milestone.
+Did our upgrades merely fix trip `00000077`'s turnaround bug, or do they lift normal trips too? To check, Table 5 isolates trip `00000077` from the other nine `student_test` trips (`15,249` observations) across Stages 0 through 4.
 
 | Stage | Description | Weighted Top-1 Acc | Step Gain | Other-9 Trips Top-1 | Trip `00000077` Top-1 | Mean Route F1 | Candidate Misses | Opp-Twin Errors | Boundary Lag Errors | Other Detour Errors | Total Errors |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -270,9 +270,9 @@ To confirm that gains hold outside trip `00000077`, Table 5 splits `student_test
 | Stage 3 | + Hybrid Prob-Geom HMM (Raw) | 96.7589% | +2.1660 pp | 96.5834% | 97.4431% | **96.3390%** | 74 | **21** | 327 | **199** | 621 |
 | **Stage 4** | **+ Continuous Route Realignment** | **97.7036%** | **+0.9447 pp** | **97.7113%** | **97.6732%** | **96.3390%** | **51** | 30 | **147** | 212 | **440** |
 
-*Note on Error Breakdown:* Baseline Stages 0 and 1 logged candidate misses (`78` at `K=8`) alongside total point errors (`2,246` and `1,161`). Full four-bucket error tracking began at Stage 2.
+*Note on Error Breakdown:* Baseline Stages 0 and 1 tracked total point errors (`2,246` and `1,161`) and candidate misses (`78` at `K=8`), whereas full four-bucket taxonomy logging started at Stage 2.
 
-Every upgrade transfers across the other nine trips as well (Figure 16). Outside trip `00000077`, classifier accuracy improves +2.62 pp from Stage 0 (91.7437%) to Stage 2 (94.3603%). HMM decoding lifts those nine trips further from 95.7243% (Stage 1) to 97.7113% (Stage 4). Trip `00000077` itself climbs +22.91 pp end-to-end (`74.7635%` to `97.6732%`). Across all 10 trips, Stage 4 flips 337 pings (`244` fixes against `63` regressions and `30` shifts). That final pass cuts boundary lag errors by 55.0% (`327` to `147`).
+Every upgrade transfers across the other nine trips as well (Figure 16). Outside trip `00000077`, classifier accuracy gains `+2.62 pp` from Stage 0 to Stage 2 (`91.7437%` to `94.3603%`), while HMM decoding pushes those nine trips from `95.7243%` (Stage 1) to `97.7113%` (Stage 4). Trip `00000077` jumps `+22.91 pp` end-to-end (`74.7635%` to `97.6732%`). Across all 10 trips, Stage 4 flips `337` points (`244` corrections against `63` regressions and `30` shifts), cutting boundary lag errors by `55.0%` (`327` to `147`).
 
 ![Figure 16: Progressive accuracy climb across Stages 0 through 4 alongside four-bucket error reductions](hmm/figures/fig3_incremental_accuracy_gains.png)
 
@@ -280,9 +280,9 @@ Every upgrade transfers across the other nine trips as well (Figure 16). Outside
 
 ## 5. Geographical Visualization Using Folium
 
-Aggregate tables cannot expose localized junction errors, so geographic plots let us audit reconstruction behavior directly on city streets. On `student_test` trip `00000000` (Figure 17), pruning momentary classifier detours lifts Top-1 Accuracy from 95.88% to 96.92%. Route Arc Precision jumps from 71.31% to 89.85%, raising Route F1 from 83.26% to 94.15%.
+Quantitative tables hide local mistakes, so plotting predictions on real city blocks helps catch corner cases fast. On `student_test` trip `00000000` (Figure 17), stripping away classifier detours nudges Top-1 Accuracy from `95.88%` to `96.92%` while sending Route Precision jumping from `71.31%` to `89.85%` (`83.26%` to `94.15%` Route F1).
 
-Interactive Folium maps cover representative trips across all partitions. Figures 8 and 18 render standalone map screenshots alongside Figure 20's interface view. Every map pairs OpenStreetMap street context with gray road-network arcs and raw GPS markers. Distinct thick green reference segments and dashed orange predictions sit behind a fixed legend and layer selector toggles.
+Interactive Folium maps are available across partitions, with rendered views shown earlier in Figure 8 and below in Figures 18 and 20. Each map pairs OpenStreetMap street tiles with gray road-graph geometry and raw GPS points beneath a thick green reference route and dashed orange prediction, complete with a fixed legend and layer toggles.
 
 ![Figure 17: Classifier-only versus final HMM predicted routes overlaid against truth on student_test trip 00000000](hmm/figures/fig2_predicted_vs_reference_route.png)
 
@@ -294,14 +294,14 @@ Interactive Folium maps cover representative trips across all partitions. Figure
 
 ### 6.1 System Architecture and Evaluator Interface
 
-To isolate inference execution from inspection, **PathSnap** splits backend scoring and browser visualization across two machines over a local area network (LAN):
+**PathSnap** splits model inference from evaluator browsing across two networked machines over LAN:-
 
-1. **Model Server (Laptop 1):** Runs a FastAPI backend exposing Representational State Transfer (REST) endpoints over Cross-Origin Resource Sharing (CORS). Frozen LightGBM weights and HMM parameters load once at startup as read-only inference state. Every request executes inside a label-free temporary folder holding only raw GPS coordinates and road geometry.
-2. **Isolated Post-Prediction Scoring:** Feature extraction and Viterbi decoding never read reference paths. Only after prediction finishes and stops the timer does Laptop 1 check optional server-side reference routes. When available, those reference paths solely compute accuracy metrics and build Folium maps.
-3. **REST Endpoints:** Health checks (`/api/health`) and trip discovery (`/api/trips`) support evaluator status queries. Single-trip inference (`/api/predict`) accepts raw GPS and graph payloads, while batch benchmarking (`/api/evaluate_all`) and interactive HTML map routing (`/api/map/{partition}/{trip_id}`) serve partition summaries.
-4. **Evaluator Client (Laptop 2):** A browser client lets evaluators select trips across `evaluator_test` and `student_test` or upload raw unlabeled trips over HTTP. Results populate per-trip metric tables beside predicted road ID sequences. Proxied Folium maps display interactive route overlays directly on the page.
+1. **Model Server (Laptop 1):** Runs a FastAPI backend exposing REST endpoints over CORS. Frozen LightGBM weights and HMM parameters load once on startup as read-only state, while every request runs inside a label-free temp folder containing only GPS pings and road geometry.
+2. **Isolated Post-Prediction Scoring:** Feature extraction and Viterbi decoding never touch ground-truth files. After prediction finishes and stops the timer, Laptop 1 checks optional server-side reference routes only to compute evaluation metrics and build Folium overlays.
+3. **REST Endpoints:** Health checks (`/api/health`) and trip listing (`/api/trips`) support live status inspection. Inference runs via `/api/predict` (accepting optional uploaded payloads), while partition benchmarks (`/api/evaluate_all`) and interactive map rendering (`/api/map/{partition}/{trip_id}`) serve full evaluation views.
+4. **Evaluator Client (Laptop 2):** Evaluators can pick trips across `evaluator_test` and `student_test` or upload raw unlabeled trips over HTTP. The browser shows per-trip metric tables next to predicted road IDs and embeds interactive Folium overlays straight on the page.
 
-Figures 19 and 20 capture a live LAN run on blind trip `00000015` from both the server console and evaluator browser.
+Figures 19 and 20 show a live LAN run on blind trip `00000015` from both the receiving server console and the browser client.
 
 ![Figure 19: Model server terminal on Laptop 1 displaying batch evaluation metrics and a live network response](evaluation/figures/api_cmd_response_screenshot.png)
 
@@ -309,7 +309,7 @@ Figures 19 and 20 capture a live LAN run on blind trip `00000015` from both the 
 
 ### 6.2 Blind Holdout Evaluation
 
-Evaluating our frozen offline weights and HMM parameters with zero retraining on all 10 `evaluator_test` trips measures true out-of-sample generalization. Those ten unseen trips contain 19,674 GPS pings across graphs totaling 168,832 nodes and 338,528 arcs. Table 6 reports every per-trip metric, while Figure 21 compares aggregate holdout accuracy against `student_test`.
+Running our frozen weights and transition parameters across 10 unseen `evaluator_test` trips with zero retraining tests how well everything holds up out of sample. Those ten trips span `19,674` GPS pings over graphs totaling `168,832` nodes and `338,528` edges. Table 6 reports every per-trip score, while Figure 21 contrasts blind results against `student_test`.
 
 | Trip ID | Obs | Road Nodes / Arcs | Cand Recall (`K=8`) | Clf-Only Top-1 | Raw HMM Top-1 | Final HMM Top-1 | Route Arc Precision | Route Arc Recall | Route Arc F1 | Seq Continuity | Total Errors | Inf Time (s) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -325,12 +325,12 @@ Evaluating our frozen offline weights and HMM parameters with zero retraining on
 | `00000094` | 3,230 | 6,815 / 14,931 | 99.9071% | 96.2539% | 96.5015% | **98.6997%** | 90.9502% | 99.8344% | **95.1855%** | 100.0000% | 42 | 1.5093 |
 | **Aggregate (Wtd / Mean)** | **19,674** | **168,832 / 338,528** | **99.5578%** | **95.2628%** | **96.1624%** | **97.5145%** | **87.8684%** | **99.3346%** | **92.1917%** | **100.0000%** | **489** | **7.8133** |
 
-*Notes on Aggregate Row:* Point accuracy columns (`Cand Recall` to `Final HMM Top-1`) report observation-weighted means over 19,674 pings. The unweighted macro Final Top-1 mean is 97.2674%. Sequence Continuity (`100.0000%`) and route precision through F1 report unweighted 10-trip means (mean Route Jaccard `87.3165%`). Total Errors sum to `489` points (`66` candidate misses, `68` opposite twins). The remaining `355` errors split into `109` boundary lags plus `246` detours, solved in `7.8133 s` total (`0.7813 s/trip` mean).
+*Notes on Aggregate Row:* Point accuracy columns (`Cand Recall` through `Final HMM Top-1`) report observation-weighted averages across all `19,674` pings (`97.2674%` unweighted macro Final Top-1 mean). Sequence Continuity (`100.0000%`) and route metrics report unweighted 10-trip averages (`87.3165%` mean Route Jaccard). Across all 10 trips, total errors reach `489` points (`66` candidate misses and `68` opposite twins, plus `109` boundary lags and `246` detours), decoded in `7.8133 s` total (`0.7813 s/trip` mean).
 
-Three key outcomes stand out in Table 6:
+Three results stand out in Table 6:-
 
-1. **Consistent holdout accuracy:** Weighted Top-1 Accuracy drops by only 0.19 pp from `student_test` (`97.7036%`) to blind `evaluator_test` (`97.5145%`). Classifier-Only Top-1 reaches `95.2628%` while candidate recall holds `99.5578%`. Three blind trips hit `100.0000%` Top-1 Accuracy with zero errors (Table 6), each exceeding `99.38%` Route Arc F1.
-2. **Unbroken continuity on large graphs:** Sequence Continuity reaches `100.0000%` on every trip with zero Dijkstra truncations. Even the `107,451`-arc graph on trip `00000087` solves in `0.6521 s`.
-3. **Diversion outlier on `00000023`:** Short trip `00000023` separates point Top-1 Accuracy (`94.9782%`) from Route Arc F1 (`58.7065%`). Predictions recover all `59` reference segments (`100.0000%` recall) with `23` total point errors (`18` detour errors). Continuous routing predicts `142` unique arcs across `144` steps, so `83` predicted arcs fall outside the reference route. That extra path length lowers precision to `41.5493%` on `00000023`, whereas the other nine trips hold `88.45%` to `99.89%` F1.
+1. **Consistent holdout accuracy:** Weighted Top-1 Accuracy drops by only `0.19 pp` between `student_test` (`97.7036%`) and blind `evaluator_test` (`97.5145%`). Classifier-Only Top-1 hits `95.2628%` at `99.5578%` candidate recall. Three blind trips achieve `100.0000%` Top-1 Accuracy with zero errors (Table 6), each beating `99.38%` Route Arc F1.
+2. **Continuity on huge graphs:** Reconstructed Sequence Continuity hits `100.0000%` across every trip with zero Dijkstra truncations, even solving trip `00000087`'s `107,451`-arc network in `0.6521 s`.
+3. **What happened on trip `00000023`:** Short trip `00000023` separates point accuracy (`94.9782%` Top-1) from Route Arc F1 (`58.7065%`). Predictions recover every single one of the `59` reference segments (`100.0000%` recall) with `23` total point errors (`18` detour errors). Yet producing a continuous path includes `83` predicted arcs outside the reference route (`142` unique arcs over `144` steps). That pulls set precision down to `41.5493%` on that short trip, while the remaining nine trips hold `88.45%` to `99.89%` F1.
 
 ![Figure 21: Blind holdout performance across all 10 evaluator_test trips and aggregate comparison with student_test](evaluation/figures/fig1_evaluator_test_metrics.png)
