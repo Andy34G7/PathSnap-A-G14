@@ -1,21 +1,22 @@
-# PathSnap Phase 1 Technical Report: Group A-G14
+# PathSnap Technical Report (Phases 1 and 2): Group A-G14
 
 **Course:** UE24CS352A: Machine Learning  
 **Team A-G14:** `Andy34G7`, `Abhiroop-24`, `A6h1ramahy`, `Neo-pixel123`  
-**Partitions used:** `train` (80 trips, 208,417 GPS points) and `student_test` (10 trips, 19,160 GPS points). All hidden evaluator data remains completely untouched.
+**Partitions used:** `train` (80 trips, 208,417 GPS points for training and CV), `student_test` (10 trips, 19,160 GPS points for local holdout validation), and `evaluator_test` (10 trips, 19,674 GPS points evaluated strictly inference-only with frozen Phase 1 weights and HMM parameters).
 
 ---
 
 ## 1. Executive Summary and System Architecture
 
-PathSnap maps noisy raw GPS trajectories (`.track`) onto directed urban road graphs (`.nodes`, `.arcs`) to reconstruct continuous ground-truth vehicle routes (`.route`). Because road networks contain up to `307,392` directed arcs per trip while `.route` stores traversed road sequence IDs rather than per-ping annotations, we decompose the problem into four stages:
+PathSnap maps noisy raw GPS trajectories (`.track`) onto directed urban road graphs (`.nodes`, `.arcs`) to reconstruct continuous ground-truth vehicle routes (`.route`). Because road networks contain up to `307,392` directed arcs per trip while `.route` stores traversed road sequence IDs rather than per-ping annotations, we decompose the problem into four algorithmic stages (Sections 2 through 6) plus a distributed two-laptop deployment stack (Section 7):
 
 1. **Dynamic projection and spatial candidate retrieval:** Transform each trip from WGS84 degrees into its local UTM metric plane, compute turnaround-aware 20 m spatial-chord headings, align `.route` monotonically on labeled partitions for supervised labels `y`, and retrieve the top `K = 8` candidate road arcs per GPS observation using a 3-point `cKDTree`.
 2. **24-feature leak-free candidate scoring:** Extract spatial proximity, projection geometry, heading alignment, smoothed temporal-window distance, and 2-sided graph chain continuity strictly from `.track`, `.nodes`, and `.arcs`. Compare 6 algorithm families under 5-fold trip-grouped cross-validation (`GroupKFold`) and tune **LightGBM** with Optuna TPE.
-3. **Hybrid probabilistic-geometric HMM and Viterbi decoding:** Fuse calibrated LightGBM log-probabilities with physical emission and Newson-Krumm directed transition costs via bounded Dijkstra shortest paths (`max_pops = 3000`) to recover connected road sequences (`99.79%` sequence continuity).
+3. **Hybrid probabilistic-geometric HMM and Viterbi decoding:** Fuse calibrated LightGBM log-probabilities with physical emission and Newson-Krumm directed transition costs via bounded Dijkstra shortest paths (`max_pops = 3000`) to recover connected road sequences (`99.7940%` continuity on `student_test`, `100.0000%` on `evaluator_test`).
 4. **Inference-only continuous route boundary realignment:** Re-align GPS pings monotonically along the decoder's own continuous predicted arc sequence (`reconstructed_route`) without reading `.route`, eliminating intersection transition lag.
+5. **Distributed two-laptop deployment and blind holdout verification:** Expose the frozen Phase 1 pipeline over a FastAPI backend on Laptop 1 (`src/api/server.py`) with post-prediction server-side evaluation and CMD verification logging, driven over HTTP by a minimal web interface on Laptop 2 (`src/ui/app.py`).
 
-Across the held-out `student_test` partition (`10` trips, `19,160` observations), our iterative pipeline raised weighted **Observation Top-1 Accuracy** from **`88.2777%`** (Iteration 1 Classifier-Only baseline) and **`93.9405%`** (Iteration 1 HMM) to **`94.5929%`** (upgraded Classifier-Only), **`96.7589%`** (Hybrid HMM pre-realignment), and **`97.7036%`** (Final Hybrid HMM + Boundary Realignment), while achieving **`96.3390%` Mean Route Arc F1** and **`99.7940%` Reconstructed Sequence Continuity**.
+Across `student_test` (`10` trips, `19,160` observations), our iterative pipeline raised weighted **Observation Top-1 Accuracy** from **`88.2777%`** (Iteration 1 Classifier-Only) and **`93.9405%`** (Iteration 1 HMM) to **`94.5929%`** (upgraded Classifier-Only), **`96.7589%`** (Hybrid HMM pre-realignment), and **`97.7036%`** (Final Hybrid HMM + Boundary Realignment), with **`96.3390%` Mean Route Arc F1** and **`99.7940%` Reconstructed Sequence Continuity**. Without any retraining, retuning, or threshold adjustments, evaluating the exact frozen Phase 1 artifacts on the newly released **`evaluator_test`** holdout (`10` trips, `19,674` observations) achieved **`97.5145%` weighted Observation Top-1 Accuracy** (up `+2.25 pp` over Classifier-Only `95.2628%`), **`92.1917%` Mean Route Arc F1** (`99.3346%` Mean Route Recall, `87.8684%` Mean Route Precision, up `+8.63 pp` over Classifier-Only `83.5606%`), **`100.0000%` Sequence Continuity across all 10 trips**, and **`0` Dijkstra truncations** in **`7.8133 s`** total batch inference (`781.3 ms/trip`).
 
 ---
 
@@ -302,3 +303,64 @@ Interactive Folium HTML maps are committed under `reports/`:
 
 - Predicted route vs. reference route (`student_test/00000000`): [trip_student_test_00000000_predicted.html](hmm/maps/trip_student_test_00000000_predicted.html)
 - EDA sample maps: [trip_train_00000001.html](eda/maps/trip_train_00000001.html), [trip_student_test_00000000.html](eda/maps/trip_student_test_00000000.html), [trip_student_test_00000007.html](eda/maps/trip_student_test_00000007.html)
+
+---
+
+## 7. API, UI, Two-Laptop Deployment, and Blind Evaluator Test Benchmark
+
+### 7.1 Two-Laptop Distributed Deployment Architecture
+
+PathSnap separates model inference and evaluation on **Laptop 1 (Model Server)** from trip selection and visual inspection on **Laptop 2 (Evaluator Client)** over a local network:
+
+1. **Laptop 1 (`src/api/server.py`):** Loads the frozen Phase 1 Tuned LightGBM classifier (`artifacts/models/best_lgbm_tuned.joblib`) and HMM configuration (`artifacts/hmm/hmm_config.json`) once at startup via FastAPI lifespan hooks, enables CORS (`allow_origins=["*"]`), and accepts trip identifiers or raw trip text payloads (`raw_payload`) from Laptop 2.
+2. **Strict zero-leakage boundary:** When Laptop 2 transmits raw `.track`, `.nodes`, and `.arcs` strings, `POST /api/predict` materializes only those three files inside a temporary directory (`tempfile.TemporaryDirectory`) and calls `predict_trip_route(..., clf, hmm_config)` with `include_labels=False`. No `.route` label ever enters candidate generation, 24-feature extraction, probability scoring, Viterbi decoding, or Stage 4 boundary realignment.
+3. **Post-prediction server-side evaluation:** Only after `predict_trip_route` finishes and stops the inference timer does Laptop 1 check whether a reference `.route` exists on the server for the requested trip, compute per-stage accuracy, continuity, route precision/recall/F1/Jaccard, and 4-bucket error taxonomy, print a structured CMD diagnostic summary to `stdout`, and render the interactive Folium map (`reports/evaluation/maps/trip_{partition}_{trip_id}_predicted.html`).
+4. **Immutability verification:** Cryptographic SHA-256 digests recorded before and after deploying and running `evaluator_test` confirm that `best_lgbm_tuned.joblib` (`dbc9eceb...927c`), `untuned_lgbm.joblib` (`f0de12e4...a2254`), and `hmm_config.json` (`9c14c0b7...93d9`) remain bit-for-bit identical to commit `acf2c38`.
+
+### 7.2 FastAPI Endpoints and Receiving Laptop CMD Verification
+
+The FastAPI service (`src/api/server.py`) exposes five endpoints with strict partition allow-listing and `trip_id` regex validation:
+
+- `GET /api/health`: Reports server readiness, loaded model artifact name, active HMM parameter dictionary, and detected holdout partitions (`evaluator_test`, `student_test`).
+- `GET /api/trips?partition=evaluator_test`: Lists the 10 evaluation trips with observation counts, graph node/arc counts, and trip durations.
+- `POST /api/predict`: Accepts either `{"partition": ..., "trip_id": ...}` or an uploaded `raw_payload` containing `.track`, `.nodes`, and `.arcs` text, returns the full `reconstructed_route` arc sequence, inference latency, post-prediction server metrics, and interactive map URL, and logs structured response blocks on Laptop 1.
+- `GET /api/evaluate_all?partition=evaluator_test`: Runs frozen batch inference across all 10 trips in a partition, persists `reports/evaluation/{partition}_per_trip.csv` and `{partition}_summary.csv`, and prints the aligned console table on Laptop 1.
+- `GET /api/map/{partition}/{trip_id}`: Serves (or generates on demand) the interactive Folium map containing OpenStreetMap tiles, corridor road segments, raw GPS pings underneath route lines, the server reference route, and the predicted dashed orange route.
+
+Figure 19 shows the actual receiving CMD log on Laptop 1 (`api_server_cmd.log`) after running `GET /api/evaluate_all?partition=evaluator_test` and `POST /api/predict` (`source=lan_payload`) on `evaluator_test/00000015`.
+
+![Figure 19: Receiving laptop (Laptop 1) FastAPI CMD console showing model startup, blind evaluator_test batch summary, and LAN payload prediction response](evaluation/figures/api_cmd_response_screenshot.png)
+
+### 7.3 Minimal Evaluator Web Interface (Laptop 2)
+
+Laptop 2 serves a lightweight, utilitarian single-page client (`src/ui/app.py`, pointing to `--api-url http://<laptop1-ip>:8000`) built with plain HTML tables, flat white and grey surfaces, crisp `1 px` borders, and system typography with zero gradients, drop shadows, icons, pills, or decorative elements. Evaluators can select either `evaluator_test` or `student_test`, pick any of the 10 trips, toggle explicit `.track`/`.nodes`/`.arcs` LAN payload transmission without `.route`, trigger single-trip reconstruction, or execute the 10-trip batch benchmark (clicking any batch row reloads that trip's map and metrics). Proxying `/ui/map/{partition}/{trip_id}` through Laptop 2 keeps the interactive Folium `<iframe>` same-origin cleanly over LAN. Figure 20 shows the live working UI on `evaluator_test/00000015` with the full 10-trip batch table and Folium overlay.
+
+![Figure 20: Minimal evaluator UI (Laptop 2) showing evaluator_test/00000015 metrics, predicted route arc sequence, 10-trip batch summary, and interactive Folium map](evaluation/figures/ui_evaluator_screenshot.png)
+
+### 7.4 Blind Holdout Evaluation on `evaluator_test` (10 Trips, 19,674 GPS Observations)
+
+Evaluating the untouched Phase 1 model and HMM configuration across all 10 trips in `evaluator_test` (`19,674` GPS observations, `168,832` nodes, and `338,528` arcs total across trip graphs; `evaluator_test_per_trip.csv`, `evaluator_test_summary.csv`) demonstrates strong generalization matching `student_test`:
+
+| Trip ID | Obs | Road Nodes / Arcs | Cand Recall (`K=8`) | Clf-Only Top-1 | Raw HMM Top-1 | Final HMM Top-1 | Route Arc Precision | Route Arc Recall | Route Arc F1 | Seq Continuity | Total Errors | Inf Time (s) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `00000015` | 6,854 | 1,571 / 3,225 | 99.8541% | 93.8722% | 95.2874% | **95.9877%** | 80.2395% | 98.5294% | **88.4488%** | 100.0000% | 275 | 2.2657 |
+| `00000017` | 1,346 | 36,724 / 76,425 | 98.2169% | 91.1590% | 91.6790% | **95.6909%** | 88.2647% | 98.7430% | **93.2103%** | 100.0000% | 58 | 0.8178 |
+| `00000023` | 458 | 5,053 / 10,596 | 96.9432% | 91.7031% | 92.5764% | **94.9782%** | 41.5493% | 100.0000% | **58.7065%** | 100.0000% | 23 | 0.1527 |
+| `00000030` | 654 | 13,223 / 24,218 | 96.6361% | 84.8624% | 86.2385% | **89.2966%** | 92.1788% | 97.9228% | **94.9640%** | 100.0000% | 70 | 0.2882 |
+| `00000049` | 2,642 | 23,165 / 47,542 | 100.0000% | 99.6972% | 99.9621% | **100.0000%** | 100.0000% | 99.7561% | **99.8779%** | 100.0000% | 0 | 1.0285 |
+| `00000059` | 1,031 | 12,631 / 24,024 | 99.0301% | 95.1503% | 95.0533% | **98.5451%** | 86.3378% | 100.0000% | **92.6680%** | 100.0000% | 15 | 0.4834 |
+| `00000067` | 916 | 2,265 / 4,485 | 100.0000% | 99.0175% | 99.6725% | **100.0000%** | 100.0000% | 98.7805% | **99.3865%** | 100.0000% | 0 | 0.2321 |
+| `00000073` | 1,144 | 12,151 / 25,631 | 99.8252% | 98.1643% | 98.2517% | **99.4755%** | 99.1632% | 100.0000% | **99.5798%** | 100.0000% | 6 | 0.3835 |
+| `00000087` | 1,399 | 55,234 / 107,451 | 99.8570% | 96.6405% | 99.4282% | **100.0000%** | 100.0000% | 99.7802% | **99.8900%** | 100.0000% | 0 | 0.6521 |
+| `00000094` | 3,230 | 6,815 / 14,931 | 99.9071% | 96.2539% | 96.5015% | **98.6997%** | 90.9502% | 99.8344% | **95.1855%** | 100.0000% | 42 | 1.5093 |
+| **Aggregate (Wtd / Mean)** | **19,674** | **168,832 / 338,528** | **99.5578%** | **95.2628%** | **96.1624%** | **97.5145%** | **87.8684%** | **99.3346%** | **92.1917%** | **100.0000%** | **489** | **7.8133** |
+
+*Notes on Aggregate Row:* `Cand Recall`, `Clf-Only Top-1`, `Raw HMM Top-1`, and `Final HMM Top-1` report observation-weighted means over all `19,674` pings (unweighted macro Final Top-1 mean is `97.2674%`); Route Precision, Recall, F1 (`mean_route_arc_jaccard_pct = 87.3165%`), and Sequence Continuity (`100.0000%`) report unweighted 10-trip means; Total Errors (`489`, comprising `66` candidate misses, `68` opposite twins, `109` adjacent boundary lag pings, and `246` other detours) and Inference Time (`7.8133 s`, mean `0.7813 s/trip`) are partition sums.
+
+Three blind holdout patterns stand out in Figure 21:
+
+1. **Near-identical holdout consistency (`97.70%` vs. `97.51%`):** Weighted Observation Top-1 Accuracy drops by only `0.19 pp` from `student_test` (`97.7036%`) to completely unseen `evaluator_test` (`97.5145%`), while Classifier-Only Top-1 reaches `95.2628%` and Candidate Recall remains `99.5578%`. Three blind trips (`00000049`, `00000067`, `00000087`) achieve **100.0000% Observation Top-1 Accuracy** with `0` total errors, `100.0000%` Route Precision, and `>= 99.38%` Route Arc F1.
+2. **Zero broken paths:** Reconstructed Sequence Continuity hits **`100.0000%` on every single one of the 10 trips**, with **0 Dijkstra truncations** even on the `107,451`-arc road network of `00000087` (`0.6521 s` runtime).
+3. **Diagnostic error behavior on `00000023`:** On `00000023`, Classifier-Only Route Arc F1 starts at `57.5610%` and HMM lifts Observation Top-1 to `94.9782%` (`100.0000%` Route Recall, `23` total errors, `18` detour pings) using `65` raw HMM unique arcs vs. `59` `.route` arcs. However, bridging multi-hop transitions along one local diversion inside `reconstruct_continuous_route` adds `83` unique off-route connector arcs (`142` unique predicted arcs across `144` sequence entries), pulling Trip `00000023` Route Precision to `41.5493%` (`58.7065%` F1) while leaving the other 9 trips between `88.45%` and `99.89%` F1.
+
+![Figure 21: Blind holdout performance across all 10 evaluator_test trips and aggregate comparison with student_test](evaluation/figures/fig1_evaluator_test_metrics.png)
