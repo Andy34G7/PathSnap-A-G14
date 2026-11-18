@@ -7,7 +7,7 @@
 
 ## 1. Candidate Generation and Route Alignment
 
-In raw form, each trip holds up to 307,392 road arcs, while `.route` lists traversed `arc_id` values rather than per-observation labels. To convert map-matching into supervised classification plus sequential decoding, we run two pre-modeling steps:
+In raw form, each trip holds up to 307,392 road arcs, while `.route` lists traversed `arc_id` values rather than per-observation labels. To convert map-matching into supervised classification plus sequential decoding, we run three pre-modeling steps:
 
 1. **Turnaround-aware velocity smoothing (`compute_smoothed_velocities`):** Real urban GPS tracks frequently pause at intersections and turnaround stops where raw 5-point finite differences invert direction under 5 m GPS cloud jitter. We smooth planar UTM coordinates with a Gaussian filter (`sigma = 2.5`), extract backward and forward spatial chords at `R = 20 m`, and split opposing chords (`dot(ub, uf) < -0.2`) so arrival pings retain arrival heading and departure pings retain departure heading. Instantaneous derivatives (`sigma = 1.2`) supply local directional variation.
 2. **Monotonic DP alignment (`align_route_to_observations`):** On labeled `train` and `student_test` trips, dynamic programming aligns each GPS observation `t` monotonically onto `.route` indices `j_t in [j_{t-1}, j_{t-1} + 15]` using point-to-arc distance plus heading alignment (`1.5 * (1 - cos_heading)`), with a `+50.0` prefix-minimum fallback for multi-minute GPS gaps.

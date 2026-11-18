@@ -193,18 +193,24 @@ def plot_sampling_and_speeds(dt_arrays: dict[str, np.ndarray], speed_arrays: dic
             color=colors[part],
             alpha=0.88,
         )
-        for bar, pct, cnt in zip(bars, pcts, counts):
+        for b_i, (bar, pct, cnt) in enumerate(zip(bars, pcts, counts)):
+            bx = bar.get_x() + bar.get_width() / 2
+            by = max(bar.get_height(), 0.02) * 1.15
+            ha = "center"
+            if b_i == 1:
+                bx = bx - 0.07 if idx == 0 else bx + 0.07
+                ha = "right" if idx == 0 else "left"
             axes[0].text(
-                bar.get_x() + bar.get_width() / 2,
-                max(bar.get_height(), 0.02) * 1.15,
+                bx,
+                by,
                 f"{pct:.2f}%\n({cnt})",
-                ha="center",
+                ha=ha,
                 va="bottom",
-                fontsize=7.5,
+                fontsize=7.0,
             )
 
     axes[0].set_yscale("log")
-    axes[0].set_ylim(0.005, 300)
+    axes[0].set_ylim(0.005, 420)
     axes[0].set_xticks(x_pos)
     axes[0].set_xticklabels(buckets, rotation=15, fontsize=9)
     axes[0].set_ylabel("Percentage of GPS Steps (log scale)")
@@ -286,27 +292,60 @@ def plot_global_trip_locations(dyn_df: pd.DataFrame) -> None:
             zorder=3,
         )
 
-    # Annotate distinct geographic clusters with UTM EPSG codes
+    # Annotate distinct geographic clusters with UTM EPSG codes without overlap
     cluster_labels = []
     for epsg, grp in dyn_df.groupby("utm_epsg"):
-        cluster_labels.append((grp["mean_lon"].mean(), grp["mean_lat"].mean(), f"EPSG:{epsg}\n(n={len(grp)})"))
-    for cx, cy, txt in cluster_labels:
-        ax.annotate(
-            txt,
-            (cx, cy),
-            textcoords="offset points",
-            xytext=(6, 6),
-            fontsize=7.5,
-            color="#334155",
-            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#cbd5e1", alpha=0.8),
-        )
+        cluster_labels.append((float(grp["mean_lon"].mean()), float(grp["mean_lat"].mean()), f"EPSG:{epsg}\n(n={len(grp)})"))
+    cluster_labels.sort(key=lambda item: item[0])
 
-    ax.set_xlim(-120, 155)
-    ax.set_ylim(-45, 70)
+    eur_idx = 0
+    for cx, cy, txt in cluster_labels:
+        if -15.0 <= cx <= 85.0 and cy >= 33.0:
+            # Split dense European/Ural band cleanly above and below on alternating indices
+            above = eur_idx % 2 == 0
+            tier = (eur_idx // 2) % 2
+            x_target = -22.0 + eur_idx * 7.8
+            y_target = (69.5 if tier == 0 else 61.8) if above else (26.5 if tier == 0 else 15.0)
+            eur_idx += 1
+            ax.annotate(
+                txt,
+                (cx, cy),
+                xytext=(x_target, y_target),
+                textcoords="data",
+                ha="center",
+                va="center",
+                fontsize=6.6,
+                color="#334155",
+                arrowprops=dict(arrowstyle="-", color="#94a3b8", lw=0.65),
+                bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="#cbd5e1", alpha=0.92),
+            )
+        else:
+            dx, dy = 8, 7
+            if -102.0 <= cx <= -97.0:
+                dx, dy = -38, -22
+            elif -96.0 <= cx <= -90.0:
+                dx, dy = -10, 12
+            elif -89.0 <= cx <= -83.0:
+                dx, dy = 8, 12
+            elif -70.0 <= cx <= -50.0 and cy < -20.0:
+                dx, dy = -12, -18 if cy < -30.0 else 12
+            ax.annotate(
+                txt,
+                (cx, cy),
+                textcoords="offset points",
+                xytext=(dx, dy),
+                fontsize=7.2,
+                color="#334155",
+                arrowprops=dict(arrowstyle="-", color="#94a3b8", lw=0.6),
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#cbd5e1", alpha=0.9),
+            )
+
+    ax.set_xlim(-122, 160)
+    ax.set_ylim(-50, 77)
     ax.set_xlabel("Centroid Longitude (degrees)")
     ax.set_ylabel("Centroid Latitude (degrees)")
     ax.set_title("Global Trip Centroids & Dynamic UTM Zone Mapping (90 Trips)")
-    ax.legend(loc="lower left")
+    ax.legend(loc="lower right", fontsize=8.5)
 
     plt.tight_layout()
     fig.savefig(FIGURES_DIR / "fig3_global_trip_locations.png", dpi=180)
