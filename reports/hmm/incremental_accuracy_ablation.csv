@@ -1,0 +1,6 @@
+stage_id,stage_name,weighted_top1_acc_pct,other9_top1_acc_pct,trip77_top1_acc_pct,mean_obs_continuity_pct,mean_seq_continuity_pct,mean_route_precision_pct,mean_route_recall_pct,mean_route_f1_pct,mean_route_jaccard_pct,cand_miss_errors,opp_twin_errors,adj_boundary_errors,other_detour_errors,total_errors,binary_macro_f1,delta_top1_pp
+Stage 0,Iter 1 Baseline Classifier-Only (commit ba4d85e),88.2777,91.7437,74.7635,93.8226,98.7554,67.1247,99.3877,79.2929,66.7195,78,,,,2246,0.9308,0.0
+Stage 1,Iter 1 Baseline HMM/Viterbi (commit ba4d85e),93.9405,95.7243,86.9854,97.6465,99.8129,92.804,99.0583,95.7142,91.9485,78,,,,1161,0.9308,5.6628
+Stage 2,Upgraded Spatial-Chord & Window Features (Classifier-Only),94.5929,94.3603,95.4999,95.7632,99.2015,76.5206,98.8867,85.4611,75.5332,74,157.0,394.0,411.0,1036,0.9674,0.6524
+Stage 3,Hybrid Probabilistic-Geometric HMM/Viterbi (Pre-Realignment),96.7589,96.5834,97.4431,97.8494,99.794,93.95,99.0493,96.339,93.0827,74,21.0,327.0,199.0,621,0.9674,2.166
+Stage 4,Continuous Route Boundary Realignment (Final),97.7036,97.7113,97.6732,97.7155,99.794,93.95,99.0493,96.339,93.0827,51,30.0,147.0,212.0,440,0.9674,0.9447

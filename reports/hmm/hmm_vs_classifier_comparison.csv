@@ -1,3 +1,4 @@
 method,weighted_top1_acc_pct,mean_obs_continuity_pct,mean_seq_continuity_pct,mean_route_precision_pct,mean_route_recall_pct,mean_route_f1_pct,mean_route_jaccard_pct,total_dijkstra_truncations,total_inference_s
-Classifier-Only (Tuned LightGBM),88.2777,93.8226,98.7554,67.1247,99.3877,79.2929,66.7195,0,0.1603
-Classifier + HMM/Viterbi,93.9405,97.6465,99.8129,92.804,99.0583,95.7142,91.9485,0,2.7222
+Classifier-Only (Upgraded Features + Tuned LightGBM),94.5929,95.7632,99.2015,76.5206,98.8867,85.4611,75.5332,0,0.4284
+Hybrid HMM/Viterbi (Pre-Realignment),96.7589,97.8494,99.794,93.95,99.0493,96.339,93.0827,0,7.4079
+Hybrid HMM/Viterbi + Route Boundary Realignment,97.7036,97.7155,99.794,93.95,99.0493,96.339,93.0827,0,7.4079
