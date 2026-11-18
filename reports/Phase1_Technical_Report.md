@@ -168,7 +168,7 @@ We trained and evaluated **6 distinct model families** on the 80 `train` trips u
 - **A. Model Understanding:**
 
     - **1. Suitability:** Fits sequential histogram boosted trees directly to binary log loss, optimizing the exact probability calibration required by Viterbi emission scoring.
-    - **2. Strengths and Limitations:** Ranks **1st across all 5 CV folds in Macro F1** (`0.8716, 0.9544, 0.9685, 0.9609, 0.9676` in `cv_fold_metrics.csv`, while Random Forest edges slightly ahead on per-fold Top-1 in Folds 1 and 2), achieves the lowest Log Loss (`0.0418`), highest Student-Test Macro F1 (`0.9664`), highest Top-1 Accuracy (`94.4676%`), highest pooled Continuity (`95.9373%`), and `6.0x` faster training than Random Forest (`3.360 s` vs `20.097 s`). Requires leaf and depth tuning to avoid memorizing offset outlier trips.
+    - **2. Strengths and Limitations:** Ranks **1st across all 5 CV folds in Macro F1** (`0.8716, 0.9544, 0.9685, 0.9609, 0.9676` in `cv_fold_metrics.csv`, while Random Forest edges slightly ahead on per-fold Top-1 in Folds 1 and 2 and Decision Tree leads Fold 4), achieves the lowest Log Loss (`0.0418`), highest Student-Test Macro F1 (`0.9664`), highest Top-1 Accuracy (`94.4676%`), highest pooled Continuity (`95.9373%`), and `6.0x` faster training than Random Forest (`3.360 s` vs `20.097 s`). Requires leaf and depth tuning to avoid memorizing offset outlier trips.
 
 - **B. Training and Configuration:**
 
