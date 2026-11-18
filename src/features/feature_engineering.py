@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy.ndimage import gaussian_filter1d
 
 from src.eda.inventory_and_quality import BASE_DIR, load_trip_raw
 from src.eda.trajectory_analysis import project_coords_to_utm
@@ -146,27 +147,47 @@ def extract_trip_features(
     # Group 4: Trajectory Kinematics & Local Window (5)
     speed_feat = np.broadcast_to(gps_speed[:, None], (n, k))
     dt_feat = np.broadcast_to(np.clip(dt_prev, 0.0, 600.0)[:, None], (n, k))
-    pts_prev = np.vstack([pts_xy[:1], pts_xy[:-1]]) if n > 1 else pts_xy
-    pts_next = np.vstack([pts_xy[1:], pts_xy[-1:]]) if n > 1 else pts_xy
+    idx_arr = np.arange(n)
+    if n > 1:
+        sm_xy = np.column_stack(
+            [
+                gaussian_filter1d(pts_xy[:, 0], sigma=2.5, mode="nearest"),
+                gaussian_filter1d(pts_xy[:, 1], sigma=2.5, mode="nearest"),
+            ]
+        )
+    else:
+        sm_xy = pts_xy
+    pts_prev = sm_xy[np.maximum(0, idx_arr - 4)]
+    pts_next = sm_xy[np.minimum(n - 1, idx_arr + 4)]
     dist_prev_obs = _point_to_cand_segments_dist(pts_prev, ca, cab, clen2)
     dist_next_obs = _point_to_cand_segments_dist(pts_next, ca, cab, clen2)
-    mean_win3 = (dist_prev_obs + cand_dists + dist_next_obs) / 3.0
+    mean_win3_raw = (dist_prev_obs + cand_dists + dist_next_obs) / 3.0
+    mean_win3 = mean_win3_raw - np.min(mean_win3_raw, axis=1, keepdims=True)
 
     # Group 5: Graph Topology & Continuity (4)
     from_in = in_deg[cand_u].astype(np.float64)
     to_out = out_deg[cand_v].astype(np.float64)
     bidir = is_bidir_all[cand_arcs]
 
-    # Top-3 nearest candidates by distance at t-1 for connectivity check
-    dist_order_prev = np.argsort(cand_dists, axis=1)[:, : min(3, k)]
-    top3_arcs_prev = np.take_along_axis(cand_arcs, dist_order_prev, axis=1)
-    top3_v_prev = v_all[top3_arcs_prev]
+    # 2-sided local connected-chain cost margin across (t-3, t, t+3)
+    emit_loc = cand_dists + 1.5 * (1.0 - cos_sm)
+    p_idx = np.maximum(0, idx_arr - 3)
+    n_idx = np.minimum(n - 1, idx_arr + 3)
 
-    prev_conn = np.zeros((n, k), dtype=np.float64)
-    if n > 1:
-        same_arc = np.any(cand_arcs[1:, :, None] == top3_arcs_prev[:-1, None, :], axis=2)
-        adj_arc = np.any(cand_u[1:, :, None] == top3_v_prev[:-1, None, :], axis=2)
-        prev_conn[1:] = (same_arc | adj_arc).astype(np.float64)
+    same_p = cand_arcs[:, :, None] == cand_arcs[p_idx, None, :]
+    conn_p = cand_u[:, :, None] == cand_v[p_idx, None, :]
+    ut_p = conn_p & (cand_v[:, :, None] == cand_u[p_idx, None, :])
+    pen_p = np.where(same_p, 0.0, np.where(conn_p, np.where(ut_p, 8.0, 0.5), 15.0))
+    best_p = np.min(emit_loc[p_idx, None, :] + pen_p, axis=2)
+
+    same_n = cand_arcs[:, :, None] == cand_arcs[n_idx, None, :]
+    conn_n = cand_v[:, :, None] == cand_u[n_idx, None, :]
+    ut_n = conn_n & (cand_u[:, :, None] == cand_v[n_idx, None, :])
+    pen_n = np.where(same_n, 0.0, np.where(conn_n, np.where(ut_n, 8.0, 0.5), 15.0))
+    best_n = np.min(emit_loc[n_idx, None, :] + pen_n, axis=2)
+
+    chain_score = best_p + emit_loc + best_n
+    prev_conn = chain_score - np.min(chain_score, axis=1, keepdims=True)
 
     X = np.stack(
         [
@@ -334,7 +355,7 @@ def plot_feature_separability(train_cache: Path) -> None:
         ("dist_to_arc_m", "Point-to-Arc Distance (m, clipped 60 m)", (0.0, 60.0)),
         ("dist_diff_from_best_m", "Distance Above Best Candidate (m, clipped 50 m)", (0.0, 50.0)),
         ("cos_heading_diff_smooth", "Cosine of Smoothed Heading Difference", (-1.0, 1.0)),
-        ("prev_cand_connected", "Connected to Top-3 Candidates at t-1", None),
+        ("prev_cand_connected", "2-Sided Local Chain Cost Margin (clipped 40 m)", (0.0, 40.0)),
     ]
 
     sns.set_theme(style="whitegrid")
