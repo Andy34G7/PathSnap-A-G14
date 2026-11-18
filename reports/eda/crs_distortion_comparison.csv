@@ -1,0 +1,4 @@
+trip_id,mean_lon,mean_lat,utm_epsg,method,total_length_m,relative_error_vs_geodesic_pct,max_step_diff_vs_geodesic_m,one_deg_lon_m,one_deg_lat_m,lon_lat_anisotropy_pct
+00000001,8.605599,50.088368,32632,WGS84 Geodesic (Reference),50228.555,0.0,0.0,71563.72,111230.76,35.66
+00000001,8.605599,50.088368,32632,Local UTM (EPSG:32632),50208.955,0.03902,0.02822,71563.72,111230.76,35.66
+00000001,8.605599,50.088368,32632,Naive Isotropic Degree Scaling (111.32 km/deg),56158.431,11.806,27.913,71563.72,111230.76,35.66
