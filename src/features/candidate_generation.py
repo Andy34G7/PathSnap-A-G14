@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.ndimage import gaussian_filter1d
 from scipy.spatial import cKDTree
 
 from src.eda.inventory_and_quality import BASE_DIR, load_trip_raw
@@ -19,8 +20,9 @@ FEATURES_REPORTS_DIR = BASE_DIR / "reports" / "features"
 def compute_smoothed_velocities(
     pts_xy: np.ndarray,
     timestamps: np.ndarray,
+    chord_r_m: float = 20.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Compute step distances, time deltas, clipped speeds, and 3-pt/5-pt unit heading vectors."""
+    """Compute step distances, time deltas, speeds, local derivative headings, and turnaround-aware spatial chords."""
     n = len(pts_xy)
     step_dist = np.zeros(n, dtype=np.float64)
     dt_prev = np.ones(n, dtype=np.float64)
@@ -32,26 +34,61 @@ def compute_smoothed_velocities(
     if n > 1:
         gps_speed[0] = gps_speed[1]
 
-    idx = np.arange(n)
-    i_m1 = np.maximum(0, idx - 1)
-    i_p1 = np.minimum(n - 1, idx + 1)
-    v_inst = pts_xy[i_p1] - pts_xy[i_m1]
-    inst_norm = np.hypot(v_inst[:, 0], v_inst[:, 1])
+    if n <= 1:
+        unit_default = np.tile(np.array([1.0, 0.0], dtype=np.float64), (n, 1))
+        return step_dist, dt_prev, gps_speed, unit_default, unit_default.copy()
+
+    gx = np.gradient(gaussian_filter1d(pts_xy[:, 0], sigma=1.2, mode="nearest"))
+    gy = np.gradient(gaussian_filter1d(pts_xy[:, 1], sigma=1.2, mode="nearest"))
+    gn = np.hypot(gx, gy)
     v_inst_u = np.where(
-        (inst_norm > 1e-6)[:, None],
-        v_inst / np.maximum(inst_norm[:, None], 1e-6),
+        (gn > 1e-6)[:, None],
+        np.column_stack([gx, gy]) / np.maximum(gn[:, None], 1e-6),
         np.array([1.0, 0.0]),
     )
 
-    i_m2 = np.maximum(0, idx - 2)
-    i_p2 = np.minimum(n - 1, idx + 2)
-    v_sm = pts_xy[i_p2] - pts_xy[i_m2]
-    sm_norm = np.hypot(v_sm[:, 0], v_sm[:, 1])
-    v_sm_u = np.where(
-        (sm_norm > 1e-6)[:, None],
-        v_sm / np.maximum(sm_norm[:, None], 1e-6),
-        v_inst_u,
-    )
+    sm_x = gaussian_filter1d(pts_xy[:, 0], sigma=2.5, mode="nearest").tolist()
+    sm_y = gaussian_filter1d(pts_xy[:, 1], sigma=2.5, mode="nearest").tolist()
+    r2 = chord_r_m * chord_r_m
+
+    v_sm_u = np.empty((n, 2), dtype=np.float64)
+    for i in range(n):
+        xi, yi = sm_x[i], sm_y[i]
+        ib = i
+        while ib > 0:
+            dx = xi - sm_x[ib]
+            dy = yi - sm_y[ib]
+            if dx * dx + dy * dy >= r2:
+                break
+            ib -= 1
+        if_ = i
+        while if_ < n - 1:
+            dx = sm_x[if_] - xi
+            dy = sm_y[if_] - yi
+            if dx * dx + dy * dy >= r2:
+                break
+            if_ += 1
+
+        vbx, vby = xi - sm_x[ib], yi - sm_y[ib]
+        vfx, vfy = sm_x[if_] - xi, sm_y[if_] - yi
+        nb = (vbx * vbx + vby * vby) ** 0.5
+        nf = (vfx * vfx + vfy * vfy) ** 0.5
+        ubx = vbx / nb if nb > 1e-6 else float(v_inst_u[i, 0])
+        uby = vby / nb if nb > 1e-6 else float(v_inst_u[i, 1])
+        ufx = vfx / nf if nf > 1e-6 else ubx
+        ufy = vfy / nf if nf > 1e-6 else uby
+
+        if ubx * ufx + uby * ufy < -0.2:
+            vx, vy = (ubx, uby) if (i - ib) <= (if_ - i) else (ufx, ufy)
+        else:
+            vx, vy = ubx + ufx, uby + ufy
+        nv = (vx * vx + vy * vy) ** 0.5
+        if nv > 1e-6:
+            v_sm_u[i, 0] = vx / nv
+            v_sm_u[i, 1] = vy / nv
+        else:
+            v_sm_u[i, 0] = ubx
+            v_sm_u[i, 1] = uby
 
     return step_dist, dt_prev, gps_speed, v_inst_u, v_sm_u
 

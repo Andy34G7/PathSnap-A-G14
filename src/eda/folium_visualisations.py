@@ -124,14 +124,42 @@ def create_trip_folium_map(
         ).add_to(road_group)
     road_group.add_to(fmap)
 
-    # 2. Reference Ground-Truth Route (.route)
+    # 2. Raw GPS Observations (.track) underneath route overlays so routes remain legible
+    gps_group = folium.FeatureGroup(name=f"Raw GPS Observations (.track: {len(track):,} pts)", show=True)
+    track_latlon = [[float(lat), float(lon)] for lon, lat in track[:, :2]]
+    folium.PolyLine(
+        locations=track_latlon,
+        color="#3b82f6",
+        weight=1.8,
+        opacity=0.45,
+        dash_array="4, 4",
+        tooltip="Raw GPS Trajectory",
+    ).add_to(gps_group)
+
+    marker_stride = 1 if len(track) <= 3000 else max(1, len(track) // 2000)
+    for obs_idx in range(0, len(track), marker_stride):
+        lon_v, lat_v, ts_v = track[obs_idx]
+        folium.CircleMarker(
+            location=[float(lat_v), float(lon_v)],
+            radius=1.8,
+            color="#1d4ed8",
+            fill=True,
+            fill_color="#60a5fa",
+            fill_opacity=0.45,
+            opacity=0.45,
+            weight=0,
+            popup=f"Obs #{obs_idx} | t={ts_v:.1f}s | ({lat_v:.6f}, {lon_v:.6f})",
+        ).add_to(gps_group)
+    gps_group.add_to(fmap)
+
+    # 3. Reference Ground-Truth Route (.route)
     if route is not None and len(route) > 0:
         route_group = folium.FeatureGroup(name=f"Reference Route (.route: {len(route)} arcs)", show=True)
         for idx, poly in enumerate(_stitch_arc_polylines(arcs, route, nodes)):
             folium.PolyLine(
                 locations=poly,
                 color="#16a34a",
-                weight=5.0,
+                weight=6.0,
                 opacity=0.85,
                 tooltip=f"Reference Route (segment block {idx + 1})",
             ).add_to(route_group)
@@ -149,47 +177,19 @@ def create_trip_folium_map(
         ).add_to(route_group)
         route_group.add_to(fmap)
 
-    # 3. Predicted Route (optional, reused in Phase 2 & UI)
+    # 4. Predicted Route on top (optional, reused in Phase 2 & UI)
     if pred_arr is not None and len(pred_arr) > 0:
         pred_group = folium.FeatureGroup(name=f"Predicted Route ({len(pred_arr)} arcs)", show=True)
         for idx, poly in enumerate(_stitch_arc_polylines(arcs, pred_arr, nodes)):
             folium.PolyLine(
                 locations=poly,
                 color="#ea580c",
-                weight=4.0,
-                opacity=0.9,
+                weight=3.2,
+                opacity=0.95,
                 dash_array="8, 6",
                 tooltip=f"Predicted Route (segment block {idx + 1})",
             ).add_to(pred_group)
         pred_group.add_to(fmap)
-
-    # 4. Raw GPS Observations (.track)
-    gps_group = folium.FeatureGroup(name=f"Raw GPS Observations (.track: {len(track):,} pts)", show=True)
-    track_latlon = [[float(lat), float(lon)] for lon, lat in track[:, :2]]
-    folium.PolyLine(
-        locations=track_latlon,
-        color="#2563eb",
-        weight=2.2,
-        opacity=0.7,
-        dash_array="5, 5",
-        tooltip="Raw GPS Trajectory",
-    ).add_to(gps_group)
-
-    # Add clickable CircleMarkers (stride if exceptionally huge > 3000 pts)
-    marker_stride = 1 if len(track) <= 3000 else max(1, len(track) // 2000)
-    for obs_idx in range(0, len(track), marker_stride):
-        lon_v, lat_v, ts_v = track[obs_idx]
-        folium.CircleMarker(
-            location=[float(lat_v), float(lon_v)],
-            radius=2.5,
-            color="#1d4ed8",
-            fill=True,
-            fill_color="#3b82f6",
-            fill_opacity=0.85,
-            weight=1,
-            popup=f"Obs #{obs_idx} | t={ts_v:.1f}s | ({lat_v:.6f}, {lon_v:.6f})",
-        ).add_to(gps_group)
-    gps_group.add_to(fmap)
 
     # Custom legend box
     pred_legend_item = (
