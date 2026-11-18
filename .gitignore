@@ -16,6 +16,7 @@ train/
 student_test/
 evaluator_test/
 artifacts/features/*.npz
+guidelines/
 viva_prep/
 
 # OS / Editor
