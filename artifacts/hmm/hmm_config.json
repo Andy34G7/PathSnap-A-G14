@@ -1,0 +1,8 @@
+{
+  "alpha_emit": 1.0,
+  "beta_trans": 0.15,
+  "switch_cost": 0.5,
+  "uturn_cost": 2.0,
+  "disconnect_penalty": 30.0,
+  "max_conn_penalty": 12.0
+}

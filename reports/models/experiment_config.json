@@ -1,0 +1,32 @@
+{
+  "random_seed": 42,
+  "candidate_set_size_k": 8,
+  "num_features": 24,
+  "cv_strategy": "GroupKFold(n_splits=5) grouped by trip_id on 80 train trips",
+  "train_observation_stride_cv_and_fit": 3,
+  "train_observation_stride_optuna_search": 5,
+  "validation_and_test_stride": 1,
+  "optuna_trials": 25,
+  "optuna_search_time_s": 410.61,
+  "best_optuna_trial": 22,
+  "best_lgbm_params": {
+    "n_estimators": 196,
+    "learning_rate": 0.054713800341309696,
+    "num_leaves": 63,
+    "max_depth": 6,
+    "min_child_samples": 101,
+    "subsample": 0.6617306589463052,
+    "colsample_bytree": 0.7575518066923028,
+    "reg_lambda": 0.14999968180901746,
+    "subsample_freq": 1
+  },
+  "hmm_config": {
+    "alpha_emit": 1.0,
+    "beta_trans": 0.15,
+    "switch_cost": 0.5,
+    "uturn_cost": 2.0,
+    "disconnect_penalty": 30.0,
+    "max_conn_penalty": 12.0,
+    "dijkstra_max_pops": 3000
+  }
+}

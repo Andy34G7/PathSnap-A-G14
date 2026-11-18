@@ -39,7 +39,7 @@ We extract 24 features per `(observation, candidate)` pair across five groups in
 4. **Trajectory Kinematics & Local Window (5):** `gps_speed_mps` (clipped at 60 m/s), `dt_prev_s` (capped at 600 s), `dist_prev_obs_to_arc_m`, `dist_next_obs_to_arc_m`, `mean_window3_dist_to_arc_m`.
 5. **Graph Topology & Continuity (4):** `from_node_in_deg`, `to_node_out_deg`, `is_bidirectional_arc`, `prev_cand_connected` (whether the candidate matches or follows any top-3 candidate from $t-1$).
 
-Table 2 reports the strongest features separating matched (`y = 1`) and unmatched (`y = 0`) candidates across all 1,667,336 `train` rows, and Figure 2 plots their empirical distributions.
+Table 2 reports selected high-signal features separating matched (`y = 1`) and unmatched (`y = 0`) candidates across all 1,667,336 `train` rows (with `y` derived from monotonic DP alignment on `train`), and Figure 2 plots four of these distributions.
 
 | Feature | Matched Mean (Med) | Unmatched Mean (Med) | Corr with `y` |
 |---|---:|---:|---:|
@@ -48,6 +48,7 @@ Table 2 reports the strongest features separating matched (`y = 1`) and unmatche
 | `dist_zscore_in_cands` | -1.1482 (-1.2082) | 0.1483 (0.3253) | -0.4476 |
 | `heading_diff_deg_smooth` | 24.9311 (8.0806) | 92.6711 (91.2817) | -0.3234 |
 | `cos_heading_diff_smooth` | 0.7879 (0.9901) | -0.0275 (-0.0224) | +0.3117 |
+| `cos_heading_diff_inst` | 0.7052 (0.9698) | -0.0351 (-0.0624) | +0.2897 |
 | `is_forward_aligned` | 0.9122 (1.0000) | 0.4938 (0.0000) | +0.2673 |
 | `prev_cand_connected` | 0.9471 (1.0000) | 0.5620 (1.0000) | +0.2508 |
 | `dist_to_arc_m` | 10.4673 (5.1037) | 69.5474 (33.4345) | -0.1841 |
