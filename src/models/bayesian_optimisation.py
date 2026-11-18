@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -58,6 +59,7 @@ def evaluate_lgbm_cv_and_test(
 
     gkf = GroupKFold(n_splits=5)
     oof_probs = np.zeros((n_tr_obs, k), dtype=np.float64)
+    fold_f1s: list[float] = []
 
     for tr_obs_idx, va_obs_idx in gkf.split(np.arange(n_tr_obs), groups=trip_idx_tr):
         fit_obs = tr_obs_idx[::3]
@@ -67,10 +69,15 @@ def evaluate_lgbm_cv_and_test(
 
         clf = LGBMClassifier(**params, n_jobs=-1, random_state=42, verbose=-1)
         clf.fit(X_fit, y_fit)
-        oof_probs[va_obs_idx] = clf.predict_proba(X_val)[:, 1].reshape(-1, k)
+        val_p = clf.predict_proba(X_val)[:, 1].reshape(-1, k)
+        oof_probs[va_obs_idx] = val_p
+        fold_f1s.append(
+            float(f1_score(y_tr_2d[va_obs_idx].reshape(-1), (val_p.reshape(-1) >= 0.5).astype(np.uint8), average="macro"))
+        )
 
     oof_flat = np.clip(oof_probs.reshape(-1), 1e-7, 1.0 - 1e-7)
     cv_f1 = float(f1_score(y_tr_flat, (oof_flat >= 0.5).astype(np.uint8), average="macro"))
+    cv_f1_std = float(np.std(fold_f1s))
     cv_ll = float(log_loss(y_tr_flat, oof_flat))
     cv_top1, cv_cont, _ = compute_top1_and_continuity(
         oof_probs, cand_tr, gt_tr, trip_names_tr, offsets_tr, arcs_tr_map
@@ -107,6 +114,7 @@ def evaluate_lgbm_cv_and_test(
     return {
         "variant": label,
         "cv_macro_f1": round(cv_f1, 4),
+        "cv_macro_f1_std": round(cv_f1_std, 4),
         "cv_top1_acc_pct": round(cv_top1, 4),
         "cv_logloss": round(cv_ll, 4),
         "cv_route_continuity_pct": round(cv_cont, 4),
@@ -217,6 +225,7 @@ def main() -> None:
         X_tr_3d, y_tr_2d, cand_tr, gt_tr, trip_idx_tr, trip_names_tr, offsets_tr, arcs_tr_map,
         X_te_3d, y_te_2d, cand_te, gt_te, trip_names_te, offsets_te, arcs_te_map,
         label="Untuned LightGBM",
+        save_path=str(MODELS_ARTIFACTS_DIR / "untuned_lgbm.joblib"),
     )
     tuned_res = evaluate_lgbm_cv_and_test(
         best_params,
@@ -228,6 +237,26 @@ def main() -> None:
 
     comp_df = pd.DataFrame([untuned_res, tuned_res])
     comp_df.to_csv(MODELS_REPORTS_DIR / "untuned_vs_tuned_comparison.csv", index=False)
+
+    exp_cfg_path = MODELS_REPORTS_DIR / "experiment_config.json"
+    exp_cfg = json.loads(exp_cfg_path.read_text(encoding="utf-8")) if exp_cfg_path.exists() else {}
+    exp_cfg.update(
+        {
+            "random_seed": 42,
+            "candidate_set_size_k": k,
+            "num_features": n_feat,
+            "cv_strategy": "GroupKFold(n_splits=5) grouped by trip_id on 80 train trips",
+            "train_observation_stride_cv_and_fit": 3,
+            "train_observation_stride_optuna_search": 5,
+            "validation_and_test_stride": 1,
+            "optuna_trials": 25,
+            "optuna_search_time_s": round(total_search_s, 2),
+            "best_optuna_trial": int(study.best_trial.number),
+            "best_lgbm_params": best_params,
+        }
+    )
+    exp_cfg_path.write_text(json.dumps(exp_cfg, indent=2) + "\n", encoding="utf-8")
+
     print("\n=== Untuned vs. Tuned LightGBM ===")
     print(comp_df.to_string(index=False))
 

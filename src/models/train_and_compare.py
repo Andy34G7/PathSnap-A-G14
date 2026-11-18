@@ -121,13 +121,14 @@ def get_model_registry(seed: int = 42) -> list[dict[str, Any]]:
         {
             "name": "LightGBM",
             "family": "Gradient Boosting",
-            "config_summary": "LGBMClassifier(n_estimators=200, lr=0.08, num_leaves=31, min_child=50)",
+            "config_summary": "LGBMClassifier(n_estimators=200, lr=0.08, num_leaves=31, min_child=50, subsample_freq=1)",
             "estimator": LGBMClassifier(
                 n_estimators=200,
                 learning_rate=0.08,
                 num_leaves=31,
                 min_child_samples=50,
                 subsample=0.8,
+                subsample_freq=1,
                 colsample_bytree=0.8,
                 n_jobs=-1,
                 random_state=seed,

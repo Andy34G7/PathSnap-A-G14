@@ -7,26 +7,38 @@
   "train_observation_stride_optuna_search": 5,
   "validation_and_test_stride": 1,
   "optuna_trials": 25,
-  "optuna_search_time_s": 410.61,
-  "best_optuna_trial": 22,
+  "optuna_search_time_s": 646.18,
+  "best_optuna_trial": 19,
   "dijkstra_max_pops": 3000,
   "best_lgbm_params": {
-    "n_estimators": 196,
-    "learning_rate": 0.054713800341309696,
-    "num_leaves": 63,
-    "max_depth": 6,
-    "min_child_samples": 101,
-    "subsample": 0.6617306589463052,
-    "colsample_bytree": 0.7575518066923028,
-    "reg_lambda": 0.14999968180901746,
+    "n_estimators": 385,
+    "learning_rate": 0.023647215171930757,
+    "num_leaves": 88,
+    "max_depth": 10,
+    "min_child_samples": 97,
+    "subsample": 0.6768302863073963,
+    "colsample_bytree": 0.7228093618566607,
+    "reg_lambda": 0.0010466139635304848,
     "subsample_freq": 1
   },
   "hmm_config": {
     "alpha_emit": 1.0,
-    "beta_trans": 0.15,
-    "switch_cost": 0.5,
-    "uturn_cost": 2.0,
-    "disconnect_penalty": 30.0,
-    "max_conn_penalty": 12.0
-  }
+    "geom_weight": 0.5,
+    "beta_trans": 0.35,
+    "switch_cost": 1.0,
+    "sp_weight": 0.1,
+    "uturn_cost": 8.0,
+    "backtrack_cost": 4.0,
+    "disconnect_penalty": 80.0,
+    "max_conn_penalty": 30.0
+  },
+  "stage4_continuous_realignment": true,
+  "hmm_tune_train_trips": [
+    "00000001",
+    "00000004",
+    "00000013",
+    "00000018",
+    "00000022",
+    "00000035"
+  ]
 }

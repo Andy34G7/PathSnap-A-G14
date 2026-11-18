@@ -1,31 +1,31 @@
 model,fold,val_macro_f1,val_top1_acc_pct
-Logistic Regression,0,0.8343,48.0729
-Logistic Regression,1,0.8865,82.6493
-Logistic Regression,2,0.9067,88.7606
-Logistic Regression,3,0.9081,80.3583
-Logistic Regression,4,0.9077,85.8056
-Gaussian Naive Bayes,0,0.7494,47.2776
-Gaussian Naive Bayes,1,0.7617,82.1222
-Gaussian Naive Bayes,2,0.7971,88.061
-Gaussian Naive Bayes,3,0.7228,79.6774
-Gaussian Naive Bayes,4,0.7506,85.3149
-Decision Tree,0,0.8102,48.0011
-Decision Tree,1,0.9049,82.8865
-Decision Tree,2,0.9272,88.3125
-Decision Tree,3,0.9317,80.9764
-Decision Tree,4,0.9264,86.191
-Random Forest,0,0.8532,48.3604
-Random Forest,1,0.9056,83.5741
-Random Forest,2,0.9358,90.0616
-Random Forest,3,0.9328,81.283
-Random Forest,4,0.9293,86.3753
-LightGBM,0,0.8538,48.8538
-LightGBM,1,0.9101,83.7035
-LightGBM,2,0.9374,89.7309
-LightGBM,3,0.938,81.7635
-LightGBM,4,0.9326,86.9162
-MLP Neural Network,0,0.8444,47.9699
-MLP Neural Network,1,0.9037,83.428
-MLP Neural Network,2,0.9302,88.8636
-MLP Neural Network,3,0.93,80.8171
-MLP Neural Network,4,0.927,86.033
+Logistic Regression,0,0.8422,50.4707
+Logistic Regression,1,0.9198,89.1301
+Logistic Regression,2,0.9413,92.8792
+Logistic Regression,3,0.9225,82.1643
+Logistic Regression,4,0.9321,90.6049
+Gaussian Naive Bayes,0,0.7842,49.8359
+Gaussian Naive Bayes,1,0.8033,89.4463
+Gaussian Naive Bayes,2,0.8419,93.701
+Gaussian Naive Bayes,3,0.753,82.2754
+Gaussian Naive Bayes,4,0.7844,90.6049
+Decision Tree,0,0.8049,51.0791
+Decision Tree,1,0.9456,90.6227
+Decision Tree,2,0.9681,94.9996
+Decision Tree,3,0.9552,83.9679
+Decision Tree,4,0.9638,92.8286
+Random Forest,0,0.8687,51.2133
+Random Forest,1,0.9492,91.1953
+Random Forest,2,0.9679,95.1027
+Random Forest,3,0.9586,84.0476
+Random Forest,4,0.9661,92.2661
+LightGBM,0,0.8716,51.5438
+LightGBM,1,0.9544,91.157
+LightGBM,2,0.9685,94.8822
+LightGBM,3,0.9609,84.5353
+LightGBM,4,0.9676,92.6969
+MLP Neural Network,0,0.8583,50.4084
+MLP Neural Network,1,0.9439,90.2537
+MLP Neural Network,2,0.9631,94.3623
+MLP Neural Network,3,0.9502,83.205
+MLP Neural Network,4,0.9593,91.6078
